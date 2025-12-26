@@ -1,0 +1,20 @@
+stage,variable,value,data_type,resource
+general,annual_throughput,null,Mt/a,null
+general,daily_throughput,null,t/d,null
+general,operating_days_per_year,365,d/y,null
+ore_properties,copper_head_grade,null,%,null
+ore_properties,specific_gravity,null,-,null
+ore_properties,bond_ball_mill_work_index,null,kWh/t,null
+ore_properties,bond_abrasion_index,null,g,null
+crushing,availability,null,%,null
+crushing,product_size_p80,null,mm,null
+grinding,availability,null,%,null
+grinding,product_size_p80,null,µm,null
+grinding,pulp_density,null,% solids w/w,null
+flotation,residence_time,null,min,null
+flotation,ph,null,-,null
+regrind,product_size_p80,null,µm,null
+concentrate,copper_grade,null,% Cu,null
+concentrate,copper_recovery,null,%,null
+concentrate,filter_cake_moisture,null,% w/w,null
+tailings,thickener_underflow_density,null,% solids w/w,null
