@@ -19,9 +19,10 @@ def energy_barrier(particle_diam, dielectric, permitivity, contact_angle, bubble
     """
     global dbl_energy_barrier, dbl_drag_beta
     # TODO: Implement proper energy barrier calculation from VBA
-    # TEMPORARY: Using calibrated value to achieve ~86% recovery target
+    # TEMPORARY: Using calibrated value to achieve ~90% recovery target
     # This should be replaced with actual DLVO calculation
-    dbl_energy_barrier = 5e-14  # Calibrated value in Joules (targeting ~18.5% per cell for 86% final)
+    # For copper flotation, energy barriers should be very low for valuable minerals
+    dbl_energy_barrier = 1e-18  # Calibrated value in Joules (targeting ~90% overall recovery)
     dbl_drag_beta = 1.0
 
 
@@ -436,23 +437,25 @@ def grind_break(tonnage_input, top_size_input, bottom_size_input, selection_inpu
     Grinding breakage model using population balance.
 
     Args:
-        tonnage_input: List/array of 10 tonnage values
-        top_size_input: List/array of 10 top size values
-        bottom_size_input: List/array of 10 bottom size values
-        selection_input: List/array of 10 selection function values
+        tonnage_input: List/array of tonnage values (flexible length)
+        top_size_input: List/array of top size values (same length as tonnage_input)
+        bottom_size_input: List/array of bottom size values (same length as tonnage_input)
+        selection_input: List/array of selection function values (same length as tonnage_input)
         break_intensity: Breakage intensity (number of cycles)
 
     Returns:
-        numpy.ndarray: Updated tonnage distribution [10x1 array]
+        numpy.ndarray: Updated tonnage distribution
     """
-    size_class = 10
+    # Determine size_class from input length
+    num_size_classes = len(tonnage_input)
+    size_class = num_size_classes
 
-    # Convert inputs to numpy arrays
-    tonnage = np.zeros((11, 2))
-    top_size = np.zeros((11, 2))
-    bottom_size = np.zeros((11, 2))
+    # Convert inputs to numpy arrays (pad to allow 1-based indexing)
+    tonnage = np.zeros((num_size_classes + 1, 2))
+    top_size = np.zeros((num_size_classes + 1, 2))
+    bottom_size = np.zeros((num_size_classes + 1, 2))
 
-    for i in range(1, 11):
+    for i in range(1, num_size_classes + 1):
         tonnage[i, 1] = tonnage_input[i-1]
         top_size[i, 1] = top_size_input[i-1]
         bottom_size[i, 1] = bottom_size_input[i-1]
@@ -462,9 +465,9 @@ def grind_break(tonnage_input, top_size_input, bottom_size_input, selection_inpu
                 size_class = i - 1
 
     # Build breakage matrix
-    breakage = np.zeros((11, 11))
-    selection = np.zeros((11, 11))
-    identity = np.zeros((11, 11))
+    breakage = np.zeros((num_size_classes + 1, num_size_classes + 1))
+    selection = np.zeros((num_size_classes + 1, num_size_classes + 1))
+    identity = np.zeros((num_size_classes + 1, num_size_classes + 1))
 
     # Calculate breakage distribution
     for i in range(1, size_class + 1):
@@ -524,11 +527,11 @@ def grind_break(tonnage_input, top_size_input, bottom_size_input, selection_inpu
         prod_high = np.matmul(temp, tonnage_slice)
 
     # Interpolate between low and high cycles
-    grind_break_temp = np.zeros((11, 2))
+    grind_break_temp = np.zeros((num_size_classes + 1, 2))
     for i in range(1, size_class + 1):
         grind_break_temp[i, 1] = prod_high[i-1, 0] * (break_intensity - low_cycles) + prod_low[i-1, 0] * (high_cycles - break_intensity)
 
-    return grind_break_temp[1:11, 1]  # Return elements 1-10 from column 1
+    return grind_break_temp[1:num_size_classes+1, 1]  # Return all size classes from column 1
 
 # tonnage_input, top_size_input, bottom_size_input, selection_input, break_intensity = 313, 75, 20, 
 
@@ -564,7 +567,7 @@ lib_intensity = 50 # Liberation intensity (%)
 # Calculate recovery for each size-grade combination
 
 # Define size classes (microns) - from your matrix
-size_classes = [212.13, 106.07, 38.73, 10.00]
+size_classes = [300, 150, 75, 20]
 
 # Define grade classes (% Chalco in film) and corresponding contact angles
 grade_classes = [0.05, 0.20, 0.40, 0.75, 1.0]  # 0.1-10%, 10-30%, 30-50%, 50-100%, 100% Chalco
@@ -572,7 +575,7 @@ contact_angles = [16, 33, 42, 47, 50]  # degrees, corresponding to each grade cl
 
 # Mass distribution by size (total mass %)
 total_mass_pct = [13.9, 15.8, 31.3, 39.2, 100.1]
-micron_distribution = [212.13, 106.07, 38.73, 10.00]
+micron_distribution = [300, 150, 75, 20]
 
 throughput_grades = [0.05, 0.20, 0.40, 0.75, 1.0]  # 0.1-10%, 10-30%, 30-50%, 50-100%, 100% Chalco
 throughput_distribution = [
@@ -649,10 +652,10 @@ print(f"Total Cu Recovered: {sum([throughput_distribution[i][j] * grade_by_grade
 print("="*100)
 
 
-tonnage_input = [138, 158, 313, 392, 100, 100, 100, 100, 100, 100]
-top_size_input = [212.13, 106.07, 38.73, 10.00, 5.00, 2.50, 1.25, 0.625, 0.3125, 0.15625]
-bottom_size_input = [106.07, 38.73, 10.00, 5.00, 2.50, 1.25, 0.625, 0.3125, 0.15625, 0.078125]
-selection_input = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+tonnage_input = [138, 158, 313, 392]
+top_size_input = [300, 150, 75, 20]
+bottom_size_input = [150, 75, 20, 0]
+selection_input = [0.1, 0.2, 0.3, 0.4]
 break_intensity = 313
 grinding_breaking = grind_break(tonnage_input, top_size_input, bottom_size_input, selection_input, break_intensity)
 print(grinding_breaking)

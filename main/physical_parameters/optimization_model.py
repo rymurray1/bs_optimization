@@ -35,7 +35,7 @@ class FlotationOptimizer:
 
     def objective_function(self, x):
         """
-        Objective function to maximize recovery (minimize negative recovery).
+        Objective function to maximize copper recovery (minimize negative copper recovery).
 
         Args:
             x: Array of decision variables:
@@ -43,7 +43,7 @@ class FlotationOptimizer:
                 air_fraction, slurry_fraction, bubble_z_pot, cell_volume, froth_height]
 
         Returns:
-            float: Negative recovery (for minimization)
+            float: Negative copper recovery (for minimization)
         """
         # Unpack decision variables
         sp_power, sp_gas_rate, frother_conc, ret_time, num_cells, \
@@ -69,11 +69,11 @@ class FlotationOptimizer:
         dbl_cell_area = self.constant_params['dbl_cell_area']
         dbl_bbl_ratio = self.constant_params['dbl_bbl_ratio']
 
-        total_feed_mass = 0
-        total_recovered_mass = 0
+        total_feed_cu = 0
+        total_recovered_cu = 0
 
         try:
-            # Calculate recovery for each size-grade combination
+            # Calculate copper recovery for each size-grade combination
             for size_idx, particle_size in enumerate(size_classes):
                 for grade_idx, grade_pct in enumerate(grade_classes):
                     contact_angle_deg = contact_angles_by_grade[grade_idx]
@@ -82,6 +82,7 @@ class FlotationOptimizer:
                     grade_value = grade_by_grade[grade_idx]
 
                     mass_in_class = throughput_distribution[size_idx][grade_idx]
+                    cu_in_class = mass_in_class * grade_value / 100  # Copper mass in this class
 
                     # Calculate recovery
                     recovery = flot_rec(
@@ -92,13 +93,13 @@ class FlotationOptimizer:
                         dbl_cell_area, dbl_bbl_ratio
                     )
 
-                    total_feed_mass += mass_in_class
-                    total_recovered_mass += mass_in_class * recovery
+                    total_feed_cu += cu_in_class
+                    total_recovered_cu += cu_in_class * recovery
 
-            overall_recovery = total_recovered_mass / total_feed_mass if total_feed_mass > 0 else 0
+            overall_cu_recovery = total_recovered_cu / total_feed_cu if total_feed_cu > 0 else 0
 
-            # Return negative recovery for minimization
-            return -overall_recovery
+            # Return negative copper recovery for minimization
+            return -overall_cu_recovery
 
         except Exception as e:
             # Return large penalty if calculation fails
@@ -142,7 +143,7 @@ class FlotationOptimizer:
         print(f"  bubble_z_pot={x0[7]:.3f} V, cell_volume={x0[8]:.1f} m³, froth_height={x0[9]:.3f} m")
 
         initial_recovery = -self.objective_function(x0)
-        print(f"Initial recovery: {initial_recovery*100:.2f}%\n")
+        print(f"Initial copper recovery: {initial_recovery*100:.2f}%\n")
 
         if method == 'differential_evolution':
             # Global optimization using differential evolution
@@ -304,7 +305,7 @@ def main():
     print(f"  Bubble Zeta Potential: {optimal_params['bubble_z_pot']:.4f} V")
     print(f"  Cell Volume:           {optimal_params['cell_volume']:.1f} m³")
     print(f"  Froth Height:          {optimal_params['froth_height']:.3f} m ({optimal_params['froth_height']*100:.1f} cm)")
-    print(f"\nOptimal Recovery:        {optimal_params['optimal_recovery']*100:.2f}%")
+    print(f"\nOptimal Copper Recovery: {optimal_params['optimal_recovery']*100:.2f}%")
     print("="*100)
 
     # Sensitivity analysis example
@@ -316,7 +317,7 @@ def main():
         sp_power_range
     )
 
-    print(f"\n{'Sp. Power (kW/m³)':<20} {'Recovery (%)':<15}")
+    print(f"\n{'Sp. Power (kW/m³)':<20} {'Cu Recovery (%)':<15}")
     print("-"*35)
     for p, r in zip(param_values[::4], recovery_values[::4]):  # Show every 4th value
         print(f"{p:<20.3f} {r*100:<15.2f}")
