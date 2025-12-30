@@ -1,5 +1,4 @@
 # TEA Model Constants and Variables
-# Source: BlueShift Technoeconomic Model_rm.xlsx - Copper sheet
 
 # ECONOMIC CONSTANTS (Row 35-43)
 water_cost = 0.3  # $/m3
