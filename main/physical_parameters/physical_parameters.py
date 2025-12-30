@@ -9,21 +9,21 @@ WATER_VISCOSITY = 0.001  # Pa·s
 GRAVITY = 9.81  # m/s^2
 
 # Global variables for energy barrier calculation
-dbl_energy_barrier = 0.0
-dbl_drag_beta = 0.0
+energy_barrier_value = 0.0
+drag_beta_value = 0.0
 
 
-def energy_barrier(particle_diam, dielectric, permitivity, contact_angle, bubble_z_pot, particle_z_pot):
+def calc_energy_barrier(particle_diam, dielectric, permitivity, contact_angle, bubble_z_pot, particle_z_pot):
     """
     Calculate energy barrier for particle-bubble attachment.
     """
-    global dbl_energy_barrier, dbl_drag_beta
+    global energy_barrier_value, drag_beta_value
     # TODO: Implement proper energy barrier calculation from VBA
     # TEMPORARY: Using calibrated value to achieve ~90% recovery target
     # This should be replaced with actual DLVO calculation
     # For copper flotation, energy barriers should be very low for valuable minerals
-    dbl_energy_barrier = 1e-18  # Calibrated value in Joules (targeting ~90% overall recovery)
-    dbl_drag_beta = 1.0
+    energy_barrier_value = 1e-18  # Calibrated value in Joules (targeting ~90% overall recovery)
+    drag_beta_value = 1.0
 
 
 
@@ -31,7 +31,7 @@ def flot_rec(sg, sp_power, sp_gas_rate, air_fraction, slurry_fraction,
              particle_z_pot, bubble_z_pot, num_cells, ret_time, cell_volume,
              froth_height, frother, frother_conc, particle_diam, grade,
              contact_angle, permitivity, dielectric, pe, water_or_particle,
-             dbl_cell_area, dbl_bbl_ratio):
+             cell_area, bbl_ratio):
     """
     Calculate flotation recovery.
 
@@ -56,24 +56,29 @@ def flot_rec(sg, sp_power, sp_gas_rate, air_fraction, slurry_fraction,
         dielectric: Dielectric constant
         pe: Pe value
         water_or_particle: String "Water" or "Particle"
-        dbl_cell_area: Cell area
-        dbl_bbl_ratio: Bubble ratio
+        cell_area: Cell area
+        bbl_ratio: Bubble ratio
 
     Returns:
         float: Flotation recovery value
     """
-    global dbl_energy_barrier, dbl_drag_beta
+    global energy_barrier_value, drag_beta_value
+    #fit parameters
+    b = 2
+    alpha = 0.10
+    coverage = 0.525 # Froth parameters
+    bubble_f = 0.825 # Froth parameters
+    detach_f = 0.5  # Adjustable parameter for fitting - varies depending on ore; hydrodynamic parameters; optimized using ML
+    bulk_zone = 0.5 # Can be changed, varies depending on ore and hydrodynamic parameters    
 
     # Convert particle diameter from microns to meters
     particle_diam = particle_diam * 0.000001
 
     # Constants
-    dbl_h_c_factor = 150
-    dbl_bulk_zone = 0.5 # Can be changed, varies depending on ore and hydrodynamic parameters    
-    dbl_impeller_zone = 15
-    dbl_detach_f = 0.5  # Adjustable parameter for fitting - varies depending on ore; hydrodynamic parameters; optimized using ML
-    dbl_particle_dens = sg * 1000  # x1000 for kg/m^3
-    dbl_vol_imp_zone = 0.1  # Set impeller zone 1/10
+    h_c_factor = 150
+    impeller_zone = 15
+    particle_dens = sg * 1000  # x1000 for kg/m^3
+    vol_imp_zone = 0.1  # Set impeller zone 1/10
     sp_power = sp_power * 1000  # x1000 for w/m^3
     sp_gas_rate = sp_gas_rate / 100  # /100 for m/s
 
@@ -87,133 +92,129 @@ def flot_rec(sg, sp_power, sp_gas_rate, air_fraction, slurry_fraction,
     k_octanol = 2200  # M^-1
     k_pentanol = 55  # M^-1
 
-    # Froth parameters - fitting parameters, depending on physical and chemical parameters, can be optimized with ML
-    dbl_coverage = 0.5
-    dbl_bubble_f = 0.5
-
     # Surface tension calculations
     if frother == 2:  # MIBC
         frother_conc = frother_conc / 102170  # Convert ppm to mol/L
-        dbl_surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_mibc * math.log(k_mibc * frother_conc + 1)
+        surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_mibc * math.log(k_mibc * frother_conc + 1)
     elif frother == 3:  # PPG 400
         frother_conc = frother_conc / 134170  # Convert ppm to mol/L
-        dbl_surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_ppg400 * math.log(k_ppg400 * frother_conc + 1)
+        surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_ppg400 * math.log(k_ppg400 * frother_conc + 1)
     elif frother == 4:  # Octanol
         frother_conc = frother_conc / 130230  # Convert ppm to mol/L
-        dbl_surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_octanol * math.log(k_octanol * frother_conc + 1)
+        surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_octanol * math.log(k_octanol * frother_conc + 1)
     elif frother == 5:  # Pentanol
         frother_conc = frother_conc / 88150  # Convert ppm to mol/L
-        dbl_surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_pentanol * math.log(k_pentanol * frother_conc + 1)
+        surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_pentanol * math.log(k_pentanol * frother_conc + 1)
     else:
-        dbl_surface_tension = 0.07243  # Pure water @ 23°C
+        surface_tension = 0.07243  # Pure water @ 23°C
 
     # Energy Dissipation
-    dbl_total_dens = air_fraction * AIR_DENSITY + (1 - air_fraction) * slurry_fraction * dbl_particle_dens + (1 - slurry_fraction) * WATER_DENSITY
-    dbl_e_mean = sp_power / dbl_total_dens
-    dbl_e_bulk = dbl_bulk_zone * dbl_e_mean
-    dbl_e_impeller = dbl_impeller_zone * dbl_e_mean
+    total_dens = air_fraction * AIR_DENSITY + (1 - air_fraction) * slurry_fraction * particle_dens + (1 - slurry_fraction) * WATER_DENSITY
+    e_mean = sp_power / total_dens
+    e_bulk = bulk_zone * e_mean
+    e_impeller = impeller_zone * e_mean
 
-    dbl_bubble_diam = dbl_bubble_f * (2.11 * dbl_surface_tension / (WATER_DENSITY * dbl_e_impeller ** 0.66)) ** 0.6
+    bubble_diam = bubble_f * (2.11 * surface_tension / (WATER_DENSITY * e_impeller ** 0.66)) ** 0.6
 
-    dbl_num_attached = dbl_coverage * 4 * (dbl_bubble_diam / particle_diam) ** 2  # Num of particles attached to one bubble
+    num_attached = coverage * 4 * (bubble_diam / particle_diam) ** 2  # Num of particles attached to one bubble
 
     # Cell Calculations
-    dbl_collision_diam = 0.5 * (particle_diam + dbl_bubble_diam)  # Avg diam of collision
-    dbl_vol_particle = (4 / 3) * PI * (particle_diam / 2) ** 3  # Vol 1 part.
-    dbl_vol_bubble = (4 / 3) * PI * (dbl_bubble_diam / 2) ** 3  # Vol 1 bubb.
-    dbl_vol_bp = dbl_vol_bubble + dbl_vol_particle  # Vol of 1 BP aggregate
-    dbl_kin_visc = WATER_VISCOSITY / WATER_DENSITY
-    dbl_mass_particle = dbl_particle_dens * dbl_vol_particle  # Mass 1 part.
-    dbl_mass_bubble = AIR_DENSITY * dbl_vol_bubble  # Mass 1 bubb.
-    dbl_mass_bp = dbl_mass_bubble + dbl_mass_particle  # Mass of 1 BP aggregate
-    dbl_mass_total = cell_volume * dbl_total_dens
+    collision_diam = 0.5 * (particle_diam + bubble_diam)  # Avg diam of collision
+    vol_particle = (4 / 3) * PI * (particle_diam / 2) ** 3  # Vol 1 part.
+    vol_bubble = (4 / 3) * PI * (bubble_diam / 2) ** 3  # Vol 1 bubb.
+    vol_bp = vol_bubble + vol_particle  # Vol of 1 BP aggregate
+    kin_visc = WATER_VISCOSITY / WATER_DENSITY
+    mass_particle = particle_dens * vol_particle  # Mass 1 part.
+    mass_bubble = AIR_DENSITY * vol_bubble  # Mass 1 bubb.
+    mass_bp = mass_bubble + mass_particle  # Mass of 1 BP aggregate
+    mass_total = cell_volume * total_dens
 
     # Velocities by Dissipation
-    dbl_u1_bulk = (0.4 * (dbl_e_bulk ** (4 / 9)) * (particle_diam ** (7 / 9)) *
-                   (dbl_kin_visc ** (-1 / 3)) * (dbl_particle_dens / WATER_DENSITY - 1) ** (2 / 3)) ** 2  # For attachment
-    dbl_u2_bulk = 2 * (dbl_e_bulk * dbl_bubble_diam) ** (2 / 3)
-    dbl_u1_mean = (0.4 * (dbl_e_mean ** (4 / 9)) * (particle_diam ** (7 / 9)) *
-                   (dbl_kin_visc ** (-1 / 3)) * (dbl_particle_dens / WATER_DENSITY - 1) ** (2 / 3)) ** 2
-    dbl_u2_mean = 2 * (dbl_e_mean * dbl_bubble_diam) ** (2 / 3)
+    u1_bulk = (0.4 * (e_bulk ** (4 / 9)) * (particle_diam ** (7 / 9)) *
+                   (kin_visc ** (-1 / 3)) * (particle_dens / WATER_DENSITY - 1) ** (2 / 3)) ** 2  # For attachment
+    u2_bulk = 2 * (e_bulk * bubble_diam) ** (2 / 3)
+    u1_mean = (0.4 * (e_mean ** (4 / 9)) * (particle_diam ** (7 / 9)) *
+                   (kin_visc ** (-1 / 3)) * (particle_dens / WATER_DENSITY - 1) ** (2 / 3)) ** 2
+    u2_mean = 2 * (e_mean * bubble_diam) ** (2 / 3)
 
-    dbl_beta = (2 ** (3 / 2)) * (PI ** 0.5) * (dbl_collision_diam ** 2) * math.sqrt(dbl_u1_bulk + dbl_u2_bulk)  # From Abrahamson model using bulk dissipation
+    beta = (2 ** (3 / 2)) * (PI ** 0.5) * (collision_diam ** 2) * math.sqrt(u1_bulk + u2_bulk)  # From Abrahamson model using bulk dissipation
 
     # Calc # Density of Bubbles
-    dbl_n_bubble = air_fraction / dbl_vol_bubble
-    dbl_n_particle = (1 - air_fraction) * slurry_fraction / dbl_vol_particle
-    dbl_z_bubb_particle = dbl_beta * dbl_n_bubble * dbl_n_particle
+    n_bubble = air_fraction / vol_bubble
+    n_particle = (1 - air_fraction) * slurry_fraction / vol_particle
+    z_bubb_particle = beta * n_bubble * n_particle
 
-    dbl_work_adhesion = dbl_surface_tension * PI * (particle_diam / 2) ** 2 * (1 - math.cos(contact_angle * (PI / 180))) ** 2  # Calc work of adhesion for 1 particle
+    work_adhesion = surface_tension * PI * (particle_diam / 2) ** 2 * (1 - math.cos(contact_angle * (PI / 180))) ** 2  # Calc work of adhesion for 1 particle
 
     # Energy Barrier
-    energy_barrier(particle_diam, dielectric, permitivity, contact_angle, bubble_z_pot, particle_z_pot)
+    calc_energy_barrier(particle_diam, dielectric, permitivity, contact_angle, bubble_z_pot, particle_z_pot)
 
-    if dbl_energy_barrier <= 0:
-        dbl_energy_barrier = 0
+    if energy_barrier_value <= 0:
+        energy_barrier_value = 0
 
     # Kinetic Energy of Attachment
-    dbl_kinetic_e_attach = 0.5 * dbl_mass_particle * dbl_u1_bulk / (dbl_drag_beta ** 2)
-    dbl_kinetic_e_detach = 0.5 * dbl_mass_particle * (dbl_detach_f * (particle_diam + dbl_bubble_diam) * math.sqrt(dbl_e_impeller / dbl_kin_visc)) ** 2
+    kinetic_e_attach = 0.5 * mass_particle * u1_bulk / (drag_beta_value ** 2)
+    kinetic_e_detach = 0.5 * mass_particle * (detach_f * (particle_diam + bubble_diam) * math.sqrt(e_impeller / kin_visc)) ** 2
 
     # Probabilities
-    dbl_p_att = math.exp(-dbl_energy_barrier / dbl_kinetic_e_attach) if dbl_kinetic_e_attach != 0 else 0  # Prob. of attachment
-    dbl_p_det = math.exp(-(dbl_work_adhesion + dbl_energy_barrier) / dbl_kinetic_e_detach) if dbl_kinetic_e_detach != 0 else 0  # Prob. of detachment
-    dbl_re = math.sqrt(dbl_u2_bulk) * dbl_bubble_diam / dbl_kin_visc  # Bubble Reynold's number
+    p_att = math.exp(-energy_barrier_value / kinetic_e_attach) if kinetic_e_attach != 0 else 0  # Prob. of attachment
+    p_det = math.exp(-(work_adhesion + energy_barrier_value) / kinetic_e_detach) if kinetic_e_detach != 0 else 0  # Prob. of detachment
+    re = math.sqrt(u2_bulk) * bubble_diam / kin_visc  # Bubble Reynold's number
 
-    dbl_p_col = math.tanh(math.sqrt(3 / 2 * (1 + (3 / 16 * dbl_re) / (1 + 0.249 * dbl_re ** 0.56))) * (particle_diam / dbl_bubble_diam)) ** 2  # Prob. collision, modified Luttrell and Yoon
+    p_col = math.tanh(math.sqrt(3 / 2 * (1 + (3 / 16 * re) / (1 + 0.249 * re ** 0.56))) * (particle_diam / bubble_diam)) ** 2  # Prob. collision, modified Luttrell and Yoon
 
-    if dbl_p_col >= 1:
-        dbl_p_col = 1
+    if p_col >= 1:
+        p_col = 1
 
-    dbl_eiw = GRAVITY / (4 * PI) * (WATER_VISCOSITY ** 3 / dbl_e_bulk) ** 0.25
-    dbl_eka = (dbl_mass_bubble * dbl_u2_bulk - 2 * (dbl_bubble_diam / particle_diam) ** 2 * dbl_mass_particle * dbl_u1_bulk) ** 2 / (100 * (dbl_mass_bubble + 2 * (dbl_bubble_diam / particle_diam) ** 2 * dbl_mass_particle))
+    eiw = GRAVITY / (4 * PI) * (WATER_VISCOSITY ** 3 / e_bulk) ** 0.25
+    eka = (mass_bubble * u2_bulk - 2 * (bubble_diam / particle_diam) ** 2 * mass_particle * u1_bulk) ** 2 / (100 * (mass_bubble + 2 * (bubble_diam / particle_diam) ** 2 * mass_particle))
 
-    dbl_p_i = 13 * math.sqrt((9 * WATER_VISCOSITY ** 2) / (dbl_bubble_diam * dbl_surface_tension * dbl_total_dens))
-    dbl_pr = math.exp(-dbl_eiw / dbl_eka) if dbl_eka != 0 else 0
-    dbl_pf_transfer = 1  # dbl_p_i * (1 - dbl_pr)
+    p_i = 13 * math.sqrt((9 * WATER_VISCOSITY ** 2) / (bubble_diam * surface_tension * total_dens))
+    pr = math.exp(-eiw / eka) if eka != 0 else 0
+    pf_transfer = 1  # p_i * (1 - pr)
 
     # Froth Recovery - fitting parameter, can be optimized
-    dbl_b = 2.3
-    dbl_top_bubble_diam = dbl_bubble_diam * (1 / dbl_bbl_ratio)
-    dbl_coverage_factor = 2 * (dbl_bubble_diam / particle_diam) ** 2
-    dbl_buoyant_diam = dbl_bubble_diam * ((1 - 0.001275) / ((sg - 1) * dbl_coverage_factor)) ** (1 / 3)
-    dbl_pfr = math.exp(dbl_b * particle_diam / dbl_buoyant_diam)
-    dbl_rmax = dbl_bubble_diam / dbl_top_bubble_diam
-    dbl_froth_ret_time = froth_height / sp_gas_rate * dbl_pfr
-    dbl_alpha = 0.05
+    
+    top_bubble_diam = bubble_diam * (1 / bbl_ratio)
+    coverage_factor = 2 * (bubble_diam / particle_diam) ** 2
+    buoyant_diam = bubble_diam * ((1 - 0.001275) / ((sg - 1) * coverage_factor)) ** (1 / 3)
+    pfr = math.exp(b * particle_diam / buoyant_diam)
+    rmax = bubble_diam / top_bubble_diam
+    froth_ret_time = froth_height / sp_gas_rate * pfr
+    
 
-    dbl_r_attachment = dbl_rmax * math.exp(-dbl_alpha * dbl_froth_ret_time)
+    r_attachment = rmax * math.exp(-alpha * froth_ret_time)
 
-    dbl_qair = sp_gas_rate * dbl_cell_area
-    dbl_qliq = cell_volume / (ret_time / num_cells * 60)
-    dbl_r_water_max = (dbl_qair / dbl_qliq) / ((1 / 0.2) - 1)
+    qair = sp_gas_rate * cell_area
+    qliq = cell_volume / (ret_time / num_cells * 60)
+    r_water_max = (qair / qliq) / ((1 / 0.2) - 1)
 
-    if dbl_r_water_max > 1:
-        dbl_r_water_max = 0.1
+    if r_water_max > 1:
+        r_water_max = 0.1
 
-    dbl_r_entrainment = dbl_r_water_max * math.exp(-0.0325 * (dbl_particle_dens - WATER_DENSITY) / 1000 - 0.063 * particle_diam * 1000000)
+    r_entrainment = r_water_max * math.exp(-0.0325 * (particle_dens - WATER_DENSITY) / 1000 - 0.063 * particle_diam * 1000000)
 
-    dbl_froth_recovery_factor = dbl_r_entrainment + dbl_r_attachment
+    froth_recovery_factor = r_entrainment + r_attachment
 
     # Cap froth recovery factor at 1.0 (cannot exceed 100%)
-    if dbl_froth_recovery_factor > 1.0:
-        dbl_froth_recovery_factor = 1.0
+    if froth_recovery_factor > 1.0:
+        froth_recovery_factor = 1.0
 
     # Rate Constant
-    dbl_rate_const = dbl_beta * dbl_n_bubble * dbl_p_att * dbl_p_col * (1 - dbl_p_det) * 60  # x60 to make 1/min
+    rate_const = beta * n_bubble * p_att * p_col * (1 - p_det) * 60  # x60 to make 1/min
 
     # Dispersion Model (uses Peclet number for axial dispersion)
-    Aa = (1 + 4 * dbl_rate_const * ret_time / (num_cells * pe)) ** 0.5
+    Aa = (1 + 4 * rate_const * ret_time / (num_cells * pe)) ** 0.5
 
     # Collection zone recovery using dispersion model (accounts for back-mixing)
-    dbl_recovery_ci = 1 - 4 * Aa * math.exp(pe / 2) / ((1 + Aa) ** 2 * math.exp(Aa * pe / 2) - (1 - Aa) ** 2 * math.exp(-Aa * pe / 2))
+    recovery_ci = 1 - 4 * Aa * math.exp(pe / 2) / ((1 + Aa) ** 2 * math.exp(Aa * pe / 2) - (1 - Aa) ** 2 * math.exp(-Aa * pe / 2))
 
-    dbl_recovery_i = dbl_recovery_ci * dbl_froth_recovery_factor / (dbl_recovery_ci * dbl_froth_recovery_factor + 1 - dbl_recovery_ci)  # eq 6.2 finch & dobby
+    recovery_i = recovery_ci * froth_recovery_factor / (recovery_ci * froth_recovery_factor + 1 - recovery_ci)  # eq 6.2 finch & dobby
 
     if water_or_particle == "Water":
-        return dbl_r_water_max
+        return r_water_max
     elif water_or_particle == "Particle":
-        return 1 - (1 - dbl_recovery_i) ** num_cells
+        return 1 - (1 - recovery_i) ** num_cells
     else:
         return 0.0
 
@@ -222,23 +223,23 @@ def col_flot_rec(sg, sp_power, sp_gas_rate, air_fraction, slurry_fraction,
                  particle_z_pot, bubble_z_pot, num_cells, ret_time, cell_volume,
                  froth_height, frother, frother_conc, particle_diam, grade,
                  contact_angle, permitivity, dielectric, pe, water_or_particle,
-                 dbl_cell_area, dbl_bbl_ratio):
+                 cell_area, bbl_ratio):
     """
     Calculate column flotation recovery.
     Similar to flot_rec but with slightly different parameters for column flotation.
     """
-    global dbl_energy_barrier, dbl_drag_beta
+    global energy_barrier_value, drag_beta_value
 
     # Convert particle diameter from microns to meters
     particle_diam = particle_diam * 0.000001
 
     # Constants
-    dbl_h_c_factor = 150
-    dbl_bulk_zone = 0.5
-    dbl_impeller_zone = 15
-    dbl_detach_f = 0.5  # Adjustable parameter for fitting
-    dbl_particle_dens = sg * 1000  # x1000 for kg/m^3
-    dbl_vol_imp_zone = 0.1  # Set impeller zone 1/10
+    h_c_factor = 150
+    detach_f = .55
+    bulk_zone = 0.5
+    impeller_zone = 15
+    particle_dens = sg * 1000  # x1000 for kg/m^3
+    vol_imp_zone = 0.1  # Set impeller zone 1/10
     sp_power = sp_power * 1000  # x1000 for w/m^3
     sp_gas_rate = sp_gas_rate / 100  # /100 for m/s
 
@@ -253,132 +254,132 @@ def col_flot_rec(sg, sp_power, sp_gas_rate, air_fraction, slurry_fraction,
     k_pentanol = 55  # M^-1
 
     # Froth parameters
-    dbl_coverage = 0.3  # Different from flot_rec
-    dbl_bubble_f = 0.5
+    coverage = 0.3  # Different from flot_rec
+    bubble_f = 0.5
 
     # Surface tension calculations
     if frother == 2:  # MIBC
         frother_conc = frother_conc / 102170
-        dbl_surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_mibc * math.log(k_mibc * frother_conc + 1)
+        surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_mibc * math.log(k_mibc * frother_conc + 1)
     elif frother == 3:  # PPG 400
         frother_conc = frother_conc / 134170
-        dbl_surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_ppg400 * math.log(k_ppg400 * frother_conc + 1)
+        surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_ppg400 * math.log(k_ppg400 * frother_conc + 1)
     elif frother == 4:  # Octanol
         frother_conc = frother_conc / 130230
-        dbl_surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_octanol * math.log(k_octanol * frother_conc + 1)
+        surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_octanol * math.log(k_octanol * frother_conc + 1)
     elif frother == 5:  # Pentanol
         frother_conc = frother_conc / 88150
-        dbl_surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_pentanol * math.log(k_pentanol * frother_conc + 1)
+        surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_pentanol * math.log(k_pentanol * frother_conc + 1)
     else:
-        dbl_surface_tension = 0.07243
+        surface_tension = 0.07243
 
     # Energy Dissipation
-    dbl_total_dens = air_fraction * AIR_DENSITY + (1 - air_fraction) * slurry_fraction * dbl_particle_dens + (1 - slurry_fraction) * WATER_DENSITY
-    dbl_e_mean = sp_power / dbl_total_dens
-    dbl_e_bulk = dbl_bulk_zone * dbl_e_mean
-    dbl_e_impeller = dbl_impeller_zone * dbl_e_mean
+    total_dens = air_fraction * AIR_DENSITY + (1 - air_fraction) * slurry_fraction * particle_dens + (1 - slurry_fraction) * WATER_DENSITY
+    e_mean = sp_power / total_dens
+    e_bulk = bulk_zone * e_mean
+    e_impeller = impeller_zone * e_mean
 
-    dbl_bubble_diam = dbl_bubble_f * (2.11 * dbl_surface_tension / (WATER_DENSITY * dbl_e_impeller ** 0.66)) ** 0.6
+    bubble_diam = bubble_f * (2.11 * surface_tension / (WATER_DENSITY * e_impeller ** 0.66)) ** 0.6
 
-    dbl_num_attached = dbl_coverage * 4 * (dbl_bubble_diam / particle_diam) ** 2
+    num_attached = coverage * 4 * (bubble_diam / particle_diam) ** 2
 
     # Cell Calculations - note: collision diameter calculation is different from flot_rec
-    dbl_collision_diam = particle_diam + dbl_bubble_diam  # Different from flot_rec (no 0.5 factor)
-    dbl_vol_particle = (4 / 3) * PI * (particle_diam / 2) ** 3
-    dbl_vol_bubble = (4 / 3) * PI * (dbl_bubble_diam / 2) ** 3
-    dbl_vol_bp = dbl_vol_bubble + dbl_vol_particle
-    dbl_kin_visc = WATER_VISCOSITY / WATER_DENSITY
-    dbl_mass_particle = dbl_particle_dens * dbl_vol_particle
-    dbl_mass_bubble = AIR_DENSITY * dbl_vol_bubble
-    dbl_mass_bp = dbl_mass_bubble + dbl_mass_particle
-    dbl_mass_total = cell_volume * dbl_total_dens
+    collision_diam = particle_diam + bubble_diam  # Different from flot_rec (no 0.5 factor)
+    vol_particle = (4 / 3) * PI * (particle_diam / 2) ** 3
+    vol_bubble = (4 / 3) * PI * (bubble_diam / 2) ** 3
+    vol_bp = vol_bubble + vol_particle
+    kin_visc = WATER_VISCOSITY / WATER_DENSITY
+    mass_particle = particle_dens * vol_particle
+    mass_bubble = AIR_DENSITY * vol_bubble
+    mass_bp = mass_bubble + mass_particle
+    mass_total = cell_volume * total_dens
 
     # Velocities by Dissipation
-    dbl_u1_bulk = (0.4 * (dbl_e_bulk ** (4 / 9)) * (particle_diam ** (7 / 9)) *
-                   (dbl_kin_visc ** (-1 / 3)) * (dbl_particle_dens / WATER_DENSITY - 1) ** (2 / 3)) ** 2
-    dbl_u2_bulk = 2 * (dbl_e_bulk * dbl_bubble_diam) ** (2 / 3)
-    dbl_u1_mean = (0.4 * (dbl_e_mean ** (4 / 9)) * (particle_diam ** (7 / 9)) *
-                   (dbl_kin_visc ** (-1 / 3)) * (dbl_particle_dens / WATER_DENSITY - 1) ** (2 / 3)) ** 2
-    dbl_u2_mean = 2 * (dbl_e_mean * dbl_bubble_diam) ** (2 / 3)
+    u1_bulk = (0.4 * (e_bulk ** (4 / 9)) * (particle_diam ** (7 / 9)) *
+                   (kin_visc ** (-1 / 3)) * (particle_dens / WATER_DENSITY - 1) ** (2 / 3)) ** 2
+    u2_bulk = 2 * (e_bulk * bubble_diam) ** (2 / 3)
+    u1_mean = (0.4 * (e_mean ** (4 / 9)) * (particle_diam ** (7 / 9)) *
+                   (kin_visc ** (-1 / 3)) * (particle_dens / WATER_DENSITY - 1) ** (2 / 3)) ** 2
+    u2_mean = 2 * (e_mean * bubble_diam) ** (2 / 3)
 
-    dbl_beta = (2 ** (3 / 2)) * (PI ** 0.5) * (dbl_collision_diam ** 2) * math.sqrt(dbl_u1_bulk + dbl_u2_bulk)
+    beta = (2 ** (3 / 2)) * (PI ** 0.5) * (collision_diam ** 2) * math.sqrt(u1_bulk + u2_bulk)
 
     # Calc # Density of Bubbles
-    dbl_n_bubble = air_fraction / dbl_vol_bubble
-    dbl_n_particle = (1 - air_fraction) * slurry_fraction / dbl_vol_particle
-    dbl_z_bubb_particle = dbl_beta * dbl_n_bubble * dbl_n_particle
+    n_bubble = air_fraction / vol_bubble
+    n_particle = (1 - air_fraction) * slurry_fraction / vol_particle
+    z_bubb_particle = beta * n_bubble * n_particle
 
-    dbl_work_adhesion = dbl_surface_tension * PI * (particle_diam / 2) ** 2 * (1 - math.cos(contact_angle * (PI / 180))) ** 2
+    work_adhesion = surface_tension * PI * (particle_diam / 2) ** 2 * (1 - math.cos(contact_angle * (PI / 180))) ** 2
 
     # Energy Barrier
-    energy_barrier(particle_diam, dielectric, permitivity, contact_angle, bubble_z_pot, particle_z_pot)
+    calc_energy_barrier(particle_diam, dielectric, permitivity, contact_angle, bubble_z_pot, particle_z_pot)
 
-    if dbl_energy_barrier <= 0:
-        dbl_energy_barrier = 0
+    if energy_barrier_value <= 0:
+        energy_barrier_value = 0
 
     # Kinetic Energy of Attachment
-    dbl_kinetic_e_attach = 0.5 * dbl_mass_particle * dbl_u1_bulk / (dbl_drag_beta ** 2)
-    dbl_kinetic_e_detach = 0.5 * dbl_mass_particle * (dbl_detach_f * (particle_diam + dbl_bubble_diam) * math.sqrt(dbl_e_impeller / dbl_kin_visc)) ** 2
+    kinetic_e_attach = 0.5 * mass_particle * u1_bulk / (drag_beta_value ** 2)
+    kinetic_e_detach = 0.5 * mass_particle * (detach_f * (particle_diam + bubble_diam) * math.sqrt(e_impeller / kin_visc)) ** 2
 
     # Probabilities
-    dbl_p_att = math.exp(-dbl_energy_barrier / dbl_kinetic_e_attach) if dbl_kinetic_e_attach != 0 else 0
-    dbl_p_det = math.exp(-(dbl_work_adhesion + dbl_energy_barrier) / dbl_kinetic_e_detach) if dbl_kinetic_e_detach != 0 else 0
-    dbl_re = math.sqrt(dbl_u2_bulk) * dbl_bubble_diam / dbl_kin_visc
+    p_att = math.exp(-energy_barrier_value / kinetic_e_attach) if kinetic_e_attach != 0 else 0
+    p_det = math.exp(-(work_adhesion + energy_barrier_value) / kinetic_e_detach) if kinetic_e_detach != 0 else 0
+    re = math.sqrt(u2_bulk) * bubble_diam / kin_visc
 
-    dbl_p_col = math.tanh(math.sqrt(3 / 2 * (1 + (3 / 16 * dbl_re) / (1 + 0.249 * dbl_re ** 0.56))) * (particle_diam / dbl_bubble_diam)) ** 2
+    p_col = math.tanh(math.sqrt(3 / 2 * (1 + (3 / 16 * re) / (1 + 0.249 * re ** 0.56))) * (particle_diam / bubble_diam)) ** 2
 
-    if dbl_p_col >= 1:
-        dbl_p_col = 1
+    if p_col >= 1:
+        p_col = 1
 
-    dbl_eiw = GRAVITY / (4 * PI) * (WATER_VISCOSITY ** 3 / dbl_e_bulk) ** 0.25
-    dbl_eka = (dbl_mass_bubble * dbl_u2_bulk - 2 * (dbl_bubble_diam / particle_diam) ** 2 * dbl_mass_particle * dbl_u1_bulk) ** 2 / (100 * (dbl_mass_bubble + 2 * (dbl_bubble_diam / particle_diam) ** 2 * dbl_mass_particle))
+    eiw = GRAVITY / (4 * PI) * (WATER_VISCOSITY ** 3 / e_bulk) ** 0.25
+    eka = (mass_bubble * u2_bulk - 2 * (bubble_diam / particle_diam) ** 2 * mass_particle * u1_bulk) ** 2 / (100 * (mass_bubble + 2 * (bubble_diam / particle_diam) ** 2 * mass_particle))
 
-    dbl_p_i = 13 * math.sqrt((9 * WATER_VISCOSITY ** 2) / (dbl_bubble_diam * dbl_surface_tension * dbl_total_dens))
-    dbl_pr = math.exp(-dbl_eiw / dbl_eka) if dbl_eka != 0 else 0
-    dbl_pf_transfer = 1
+    p_i = 13 * math.sqrt((9 * WATER_VISCOSITY ** 2) / (bubble_diam * surface_tension * total_dens))
+    pr = math.exp(-eiw / eka) if eka != 0 else 0
+    pf_transfer = 1
 
     # Froth Recovery
-    dbl_b = 2.2  # Different from flot_rec
-    dbl_top_bubble_diam = dbl_bubble_diam * dbl_bbl_ratio  # Different from flot_rec (no 1/)
-    dbl_coverage_factor = 2 * (dbl_bubble_diam / particle_diam) ** 2
-    dbl_buoyant_diam = dbl_bubble_diam * ((1 - 0.001275) / ((sg - 1) * dbl_coverage_factor)) ** (1 / 3)
-    dbl_pfr = math.exp(dbl_b * particle_diam / dbl_buoyant_diam)
-    dbl_rmax = dbl_bubble_diam / dbl_top_bubble_diam
-    dbl_froth_ret_time = froth_height / sp_gas_rate * dbl_pfr
-    dbl_alpha = 0.05
+    b = 2.2  # Different from flot_rec
+    top_bubble_diam = bubble_diam * bbl_ratio  # Different from flot_rec (no 1/)
+    coverage_factor = 2 * (bubble_diam / particle_diam) ** 2
+    buoyant_diam = bubble_diam * ((1 - 0.001275) / ((sg - 1) * coverage_factor)) ** (1 / 3)
+    pfr = math.exp(b * particle_diam / buoyant_diam)
+    rmax = bubble_diam / top_bubble_diam
+    froth_ret_time = froth_height / sp_gas_rate * pfr
+    alpha = 0.05
 
-    dbl_r_attachment = dbl_rmax * math.exp(-dbl_alpha * dbl_froth_ret_time)
+    r_attachment = rmax * math.exp(-alpha * froth_ret_time)
 
-    dbl_qair = sp_gas_rate * dbl_cell_area
-    dbl_qliq = cell_volume / (ret_time / num_cells * 60)
-    dbl_r_water_max = (dbl_qair / dbl_qliq) / ((1 / 0.2) - 1)
+    qair = sp_gas_rate * cell_area
+    qliq = cell_volume / (ret_time / num_cells * 60)
+    r_water_max = (qair / qliq) / ((1 / 0.2) - 1)
 
-    if dbl_r_water_max > 1:
-        dbl_r_water_max = 0.15  # Different from flot_rec
+    if r_water_max > 1:
+        r_water_max = 0.15  # Different from flot_rec
 
-    dbl_r_entrainment = dbl_r_water_max * math.exp(-0.0325 * (dbl_particle_dens - WATER_DENSITY) / 1000 - 0.063 * particle_diam * 1000000)
+    r_entrainment = r_water_max * math.exp(-0.0325 * (particle_dens - WATER_DENSITY) / 1000 - 0.063 * particle_diam * 1000000)
 
-    dbl_froth_recovery_factor = dbl_r_entrainment + dbl_r_attachment
+    froth_recovery_factor = r_entrainment + r_attachment
 
     # Cap froth recovery factor at 1.0 (cannot exceed 100%)
-    if dbl_froth_recovery_factor > 1.0:
-        dbl_froth_recovery_factor = 1.0
+    if froth_recovery_factor > 1.0:
+        froth_recovery_factor = 1.0
 
     # Rate Constant
-    dbl_rate_const = dbl_beta * dbl_n_bubble * dbl_p_att * dbl_p_col * (1 - dbl_p_det) * 60
+    rate_const = beta * n_bubble * p_att * p_col * (1 - p_det) * 60
 
     # Dispersion Model (uses Peclet number for axial dispersion)
-    Aa = (1 + 4 * dbl_rate_const * ret_time / (num_cells * pe)) ** 0.5
+    Aa = (1 + 4 * rate_const * ret_time / (num_cells * pe)) ** 0.5
 
     # Collection zone recovery using dispersion model (accounts for back-mixing)
-    dbl_recovery_ci = 1 - 4 * Aa * math.exp(pe / 2) / ((1 + Aa) ** 2 * math.exp(Aa * pe / 2) - (1 - Aa) ** 2 * math.exp(-Aa * pe / 2))
+    recovery_ci = 1 - 4 * Aa * math.exp(pe / 2) / ((1 + Aa) ** 2 * math.exp(Aa * pe / 2) - (1 - Aa) ** 2 * math.exp(-Aa * pe / 2))
 
-    dbl_recovery_i = dbl_recovery_ci * dbl_froth_recovery_factor / (dbl_recovery_ci * dbl_froth_recovery_factor + 1 - dbl_recovery_ci)
+    recovery_i = recovery_ci * froth_recovery_factor / (recovery_ci * froth_recovery_factor + 1 - recovery_ci)
 
     if water_or_particle == "Water":
-        return dbl_r_water_max
+        return r_water_max
     elif water_or_particle == "Particle":
-        return 1 - (1 - dbl_recovery_i) ** num_cells
+        return 1 - (1 - recovery_i) ** num_cells
     else:
         return 0.0
 
@@ -533,7 +534,6 @@ def grind_break(tonnage_input, top_size_input, bottom_size_input, selection_inpu
 
     return grind_break_temp[1:num_size_classes+1, 1]  # Return all size classes from column 1
 
-# tonnage_input, top_size_input, bottom_size_input, selection_input, break_intensity = 313, 75, 20, 
 
 sg = 4.2 # Specific gravity
 sp_power = 1 # Specific power (W/m^3 before conversion)
@@ -542,25 +542,25 @@ air_fraction = 0.05 # Air fraction
 slurry_fraction = 0.15 # Slurry fraction
 particle_z_pot = -50 # Particle zeta potential
 bubble_z_pot = -.03 # Bubble zeta potential
-num_cells = 10 # Number of cells in the flotation bank
+num_cells = 1 # Number of cells in the flotation bank
 ret_time = 23.67 # Total retention time (minutes) for entire bank
 cell_volume = 700 #m^3
 froth_height = .165 # Froth height (m)
 frother = 4  # (2=MIBC, 3=PPG400, 4=Octanol, 5=Pentanol)
 frother_conc = 50 # Frother concentration mg/L
-particle_diam = 38.73 # Particle diameter (in microns)
-grade = .2871 # Grade in % copper
+particle_diam = 75 # Particle diameter (in microns)
+grade = 28 # Grade in % copper
 contact_angle = 52.3 # Contact angle (degrees)
-permitivity = 8.854*(10**-12) # Permitivity
+permitivity = 8.854 # Permitivity
 dielectric = 86.5 # Dielectric constant
 pe = 4 # Pe value 
 water_or_particle = "Particle" # String "Water" or "Particle"
-dbl_cell_area = 200 # Cell area
-dbl_bbl_ratio = 10 # Bubble ratio
+cell_area = 200 # Cell area
+bbl_ratio = 10 # Bubble ratio
 
 tonnage_input = 313 # Tonnage input
-grade_input = 0.2871 # Grade input
-lib_intensity = 50 # Liberation intensity (%)
+grade_input = 28 # Grade input
+lib_intensity = 100 # Liberation intensity (%)
 
 
 # Size-by-grade flotation recovery calculation
@@ -596,7 +596,7 @@ grade_distribution = [
 ]
 
 sg_by_grade = [3.6, 4, 4.2, 4.2, 4.5]
-contact_angles_by_grade = [10, 12.5, 27, 52.3, 60]
+contact_angles_by_grade = [20, 30, 40, 52.3, 60]  # Tuned to achieve ~3% concentrate grade
 particle_z_pot_by_grade = [-50, -50, -50, -50, -50]
 grade_by_grade = [0.002, 8, 12, 28, 34.65]
 
@@ -611,6 +611,11 @@ grade_labels = ["0.1-10%", "10-30%", "30-50%", "50-100%", "100%"]
 
 total_feed_mass = 0
 total_recovered_mass = 0
+total_cu_in_feed = 0
+total_cu_recovered = 0
+
+# Store concentrate data for each class
+concentrate_data = []
 
 # Calculate recovery for each combination
 for size_idx, particle_size in enumerate(size_classes):
@@ -632,30 +637,104 @@ for size_idx, particle_size in enumerate(size_classes):
             particle_z_pot_for_grade, bubble_z_pot, num_cells, ret_time, cell_volume,
             froth_height, frother, frother_conc, particle_size, grade_value,
             contact_angle_deg, permitivity, dielectric, pe, water_or_particle,
-            dbl_cell_area, dbl_bbl_ratio
+            cell_area, bbl_ratio
         )
 
+        # Calculate Cu content
+        cu_in_feed = mass_in_class * grade_value / 100
+        cu_recovered = cu_in_feed * recovery
+        mass_recovered = mass_in_class * recovery
+
         total_feed_mass += mass_in_class
-        total_recovered_mass += mass_in_class * recovery
+        total_recovered_mass += mass_recovered
+        total_cu_in_feed += cu_in_feed
+        total_cu_recovered += cu_recovered
+
+        # Store concentrate data
+        concentrate_data.append({
+            'size': particle_size,
+            'size_idx': size_idx,
+            'grade_label': grade_labels[grade_idx],
+            'grade_idx': grade_idx,
+            'mass_feed': mass_in_class,
+            'mass_conc': mass_recovered,
+            'cu_feed': cu_in_feed,
+            'cu_conc': cu_recovered,
+            'grade_value': grade_value,
+            'recovery': recovery
+        })
 
         print(f"{particle_size:<12.2f} {grade_labels[grade_idx]:<18} {mass_in_class:<12.2f} {grade_value:<12.2f} {contact_angle_deg:<15} {recovery*100:<15.2f}")
     print()  # Blank line between size classes
 
 overall_recovery = total_recovered_mass / total_feed_mass if total_feed_mass > 0 else 0
+overall_concentrate_grade = (total_cu_recovered / total_recovered_mass * 100) if total_recovered_mass > 0 else 0
 
 print("="*100)
 print(f"\nOVERALL WEIGHTED RECOVERY: {overall_recovery*100:.2f}%")
 print(f"Total Feed Mass: {total_feed_mass:.2f} tonnes")
 print(f"Total Recovered Mass: {total_recovered_mass:.2f} tonnes")
-print(f"Total Cu in Feed: {sum([throughput_distribution[i][j] * grade_by_grade[j] / 100 for i in range(4) for j in range(5)]):.2f} tonnes Cu")
-print(f"Total Cu Recovered: {sum([throughput_distribution[i][j] * grade_by_grade[j] / 100 * flot_rec(sg_by_grade[j], sp_power, sp_gas_rate, air_fraction, slurry_fraction, particle_z_pot_by_grade[j], bubble_z_pot, num_cells, ret_time, cell_volume, froth_height, frother, frother_conc, size_classes[i], grade_by_grade[j], contact_angles_by_grade[j], permitivity, dielectric, pe, water_or_particle, dbl_cell_area, dbl_bbl_ratio) for i in range(4) for j in range(5)]):.2f} tonnes Cu")
+print(f"Total Cu in Feed: {total_cu_in_feed:.2f} tonnes Cu")
+print(f"Total Cu Recovered: {total_cu_recovered:.2f} tonnes Cu")
+print(f"Overall Concentrate Grade: {overall_concentrate_grade:.2f}% Cu")
 print("="*100)
+
+# # CONCENTRATE COMPOSITION ANALYSIS
+# print("\n" + "="*100)
+# print("CONCENTRATE COMPOSITION BY SIZE-GRADE CLASS")
+# print("="*100)
+# print(f"{'Size (µm)':<12} {'Grade Range':<18} {'Conc Mass (t)':<15} {'Cu in Conc (t)':<15} {'Class Grade %':<15} {'% of Total Conc':<15} {'Grade Contrib':<15}")
+# print("-"*100)
+
+# for data in concentrate_data:
+#     pct_of_conc = (data['mass_conc'] / total_recovered_mass * 100) if total_recovered_mass > 0 else 0
+#     # Concentrate grade contribution from this class = (Cu from this class / Total conc mass) * 100
+#     grade_contribution = (data['cu_conc'] / total_recovered_mass * 100) if total_recovered_mass > 0 else 0
+#     print(f"{data['size']:<12.2f} {data['grade_label']:<18} {data['mass_conc']:<15.4f} {data['cu_conc']:<15.4f} {data['grade_value']:<15.2f} {pct_of_conc:<15.2f} {grade_contribution:<15.4f}")
+
+# print("\n" + "="*100)
+# print("INDIVIDUAL CLASS CONCENTRATE GRADES (if each class was processed alone)")
+# print("="*100)
+# print(f"{'Size (µm)':<12} {'Grade Range':<18} {'Feed Mass (t)':<15} {'Conc Mass (t)':<15} {'Individual Grade %':<20}")
+# print("-"*100)
+
+# for data in concentrate_data:
+#     individual_grade = (data['cu_conc'] / data['mass_conc'] * 100) if data['mass_conc'] > 0 else 0
+#     print(f"{data['size']:<12.2f} {data['grade_label']:<18} {data['mass_feed']:<15.4f} {data['mass_conc']:<15.4f} {individual_grade:<20.2f}")
+
+# Highlight the specific class you asked about: 75 microns, 50-100% grade
+# print("\n" + "="*100)
+# print("SPECIFIC CLASS HIGHLIGHT: 75 µm, 50-100% GRADE RANGE")
+# print("="*100)
+# target_class = [d for d in concentrate_data if d['size'] == 75 and d['grade_label'] == '50-100%'][0]
+# target_individual_grade = (target_class['cu_conc'] / target_class['mass_conc'] * 100) if target_class['mass_conc'] > 0 else 0
+
+# print(f"Feed Mass:                {target_class['mass_feed']:.4f} tonnes")
+# print(f"Concentrate Mass:         {target_class['mass_conc']:.4f} tonnes")
+# print(f"Cu in Feed:              {target_class['cu_feed']:.4f} tonnes Cu")
+# print(f"Cu in Concentrate:       {target_class['cu_conc']:.4f} tonnes Cu")
+# print(f"Recovery:                {target_class['recovery']*100:.2f}%")
+# print(f"Individual Class Grade:  {target_individual_grade:.2f}% Cu")
+# print(f"% of Total Concentrate:  {(target_class['mass_conc'] / total_recovered_mass * 100):.2f}%")
+# print("="*100)
 
 
 tonnage_input = [138, 158, 313, 392]
 top_size_input = [300, 150, 75, 20]
 bottom_size_input = [150, 75, 20, 0]
 selection_input = [0.1, 0.2, 0.3, 0.4]
-break_intensity = 313
+break_intensity = 8
 grinding_breaking = grind_break(tonnage_input, top_size_input, bottom_size_input, selection_input, break_intensity)
 print(grinding_breaking)
+
+"""
+All fitting parameters:
+bulk_zone = 0.5
+impeller_zone = 15
+detach_f = 0.55
+coverage = 0.5
+bubble_f = 0.725
+b = 2.3
+alpha = 0.1
+energy_barrier_value (line 25) = 1e-18
+"""

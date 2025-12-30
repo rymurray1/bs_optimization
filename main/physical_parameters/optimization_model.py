@@ -22,20 +22,27 @@ class FlotationOptimizer:
     Optimizer for flotation recovery rates based on physical parameters.
     """
 
-    def __init__(self, feed_composition, constant_params):
+    def __init__(self, feed_composition, constant_params, verbose=True, power_weight=0.1):
         """
         Initialize the optimizer with feed composition and constant parameters.
 
         Args:
             feed_composition: Dict containing feed mass distribution by size and grade
             constant_params: Dict of truly constant flotation parameters (not optimized)
+            verbose: If True, print iteration details
+            power_weight: Weight for power minimization in multi-objective function (0-1)
+                         Higher = more emphasis on minimizing power
+                         Lower = more emphasis on maximizing recovery
         """
         self.feed_composition = feed_composition
         self.constant_params = constant_params
+        self.verbose = verbose
+        self.iteration = 0
+        self.power_weight = power_weight
 
     def objective_function(self, x):
         """
-        Objective function to maximize copper recovery (minimize negative copper recovery).
+        Multi-objective function to maximize copper recovery while minimizing specific power.
 
         Args:
             x: Array of decision variables:
@@ -43,7 +50,9 @@ class FlotationOptimizer:
                 air_fraction, slurry_fraction, bubble_z_pot, cell_volume, froth_height]
 
         Returns:
-            float: Negative copper recovery (for minimization)
+            float: Combined objective value (for minimization)
+                   = (1-w)*(-recovery) + w*(normalized_power)
+                   where w is power_weight
         """
         # Unpack decision variables
         sp_power, sp_gas_rate, frother_conc, ret_time, num_cells, \
@@ -98,11 +107,36 @@ class FlotationOptimizer:
 
             overall_cu_recovery = total_recovered_cu / total_feed_cu if total_feed_cu > 0 else 0
 
-            # Return negative copper recovery for minimization
-            return -overall_cu_recovery
+            # Normalize specific power to [0, 1] range
+            # Assuming sp_power bounds are [0.8, 1.3] kW/m³
+            sp_power_min = 0.8
+            sp_power_max = 1.3
+            normalized_power = (sp_power - sp_power_min) / (sp_power_max - sp_power_min)
+            normalized_power = np.clip(normalized_power, 0, 1)
+
+            # Multi-objective: minimize power AND maximize recovery
+            # objective = (1 - w) * (-recovery) + w * (normalized_power)
+            # where w is power_weight (0 = only recovery, 1 = only power)
+            recovery_term = -overall_cu_recovery  # Negative for maximization
+            power_term = normalized_power
+
+            combined_objective = (1 - self.power_weight) * recovery_term + self.power_weight * power_term
+
+            # Print iteration details if verbose
+            if self.verbose:
+                self.iteration += 1
+                print(f"Iteration {self.iteration:4d}: sp_power={sp_power:.4f} kW/m³, "
+                      f"recovery={overall_cu_recovery*100:.3f}%, "
+                      f"objective={combined_objective:.6f}")
+
+            # Return combined objective for minimization
+            return combined_objective
 
         except Exception as e:
             # Return large penalty if calculation fails
+            if self.verbose:
+                self.iteration += 1
+                print(f"Iteration {self.iteration:4d}: FAILED - sp_power={sp_power:.4f} kW/m³")
             return 1e6
 
     def optimize(self, method='differential_evolution', bounds=None):
@@ -136,14 +170,33 @@ class FlotationOptimizer:
         x0 = [1.0, 1.5, 50, 20.0, 10, 0.10, 0.20, -0.03, 175, 0.165]
 
         print(f"\nStarting optimization using {method}...")
+        print(f"Multi-objective optimization: Recovery (weight={1-self.power_weight:.2f}) + Power minimization (weight={self.power_weight:.2f})")
         print(f"Initial parameters:")
         print(f"  sp_power={x0[0]:.3f} kW/m³, sp_gas_rate={x0[1]:.3f} cm/s, frother_conc={x0[2]:.1f} mg/L")
         print(f"  ret_time={x0[3]:.1f} min, num_cells={int(x0[4])}")
         print(f"  air_fraction={x0[5]:.3f}, slurry_fraction={x0[6]:.3f}")
         print(f"  bubble_z_pot={x0[7]:.3f} V, cell_volume={x0[8]:.1f} m³, froth_height={x0[9]:.3f} m")
 
-        initial_recovery = -self.objective_function(x0)
-        print(f"Initial copper recovery: {initial_recovery*100:.2f}%\n")
+        # Reset iteration counter and temporarily disable verbose for initial evaluation
+        self.iteration = 0
+        verbose_temp = self.verbose
+        self.verbose = False
+
+        # Evaluate initial point to get recovery
+        initial_obj = self.objective_function(x0)
+        # Extract recovery from the combined objective
+        # We need to recalculate just for display purposes
+        sp_power_init = x0[0]
+        normalized_power_init = (sp_power_init - 0.8) / (1.3 - 0.8)
+        initial_recovery = (-initial_obj + self.power_weight * normalized_power_init) / (1 - self.power_weight) if self.power_weight < 1 else 0
+
+        self.verbose = verbose_temp
+        print(f"Initial copper recovery: ~{initial_recovery*100:.2f}%")
+
+        if self.verbose:
+            print(f"\n{'='*80}")
+            print(f"{'Iteration Log':^80}")
+            print(f"{'='*80}\n")
 
         if method == 'differential_evolution':
             # Global optimization using differential evolution
@@ -179,7 +232,24 @@ class FlotationOptimizer:
         else:
             raise ValueError(f"Unknown optimization method: {method}")
 
-        # Extract optimal parameters
+        if self.verbose:
+            print(f"\n{'='*80}")
+            print(f"Optimization Complete - Total iterations: {self.iteration}")
+            print(f"{'='*80}\n")
+
+        # Extract optimal parameters and calculate actual recovery
+        # Need to recalculate recovery from the combined objective
+        sp_power_opt = result.x[0]
+        normalized_power_opt = (sp_power_opt - 0.8) / (1.3 - 0.8)
+
+        # For multi-objective: result.fun = (1-w)*(-recovery) + w*(norm_power)
+        # Solve for recovery: recovery = (-(result.fun - w*norm_power)) / (1-w)
+        if self.power_weight < 1.0:
+            optimal_recovery = (-(result.fun - self.power_weight * normalized_power_opt)) / (1 - self.power_weight)
+        else:
+            # If power_weight = 1, we only optimized for power, recovery unknown
+            optimal_recovery = None
+
         optimal_params = {
             'sp_power': result.x[0],
             'sp_gas_rate': result.x[1],
@@ -191,7 +261,9 @@ class FlotationOptimizer:
             'bubble_z_pot': result.x[7],
             'cell_volume': result.x[8],
             'froth_height': result.x[9],
-            'optimal_recovery': -result.fun,
+            'optimal_recovery': optimal_recovery,
+            'power_weight': self.power_weight,
+            'combined_objective': result.fun,
             'success': result.success,
             'message': result.message if hasattr(result, 'message') else 'Optimization complete'
         }
@@ -282,18 +354,22 @@ def main():
         'dbl_bbl_ratio': 10  # Bubble ratio
     }
 
-    # Create optimizer
-    optimizer = FlotationOptimizer(feed_composition, constant_params)
+    # Create optimizer with power minimization objective
+    # power_weight: 0 = only maximize recovery, 1 = only minimize power
+    # 0.1 = 90% recovery, 10% power minimization (good balance)
+    power_weight = 0.1
+    optimizer = FlotationOptimizer(feed_composition, constant_params, verbose=True, power_weight=power_weight)
 
     # Run optimization
     optimal_params = optimizer.optimize(method='differential_evolution')
 
     # Display results
     print("\n" + "="*100)
-    print("OPTIMIZATION RESULTS")
+    print("OPTIMIZATION RESULTS (Multi-Objective: Recovery + Power Minimization)")
     print("="*100)
     print(f"Optimization successful: {optimal_params['success']}")
     print(f"Message: {optimal_params['message']}")
+    print(f"Power weight: {optimal_params['power_weight']:.2f} (Recovery weight: {1-optimal_params['power_weight']:.2f})")
     print(f"\nOptimal Parameters:")
     print(f"  Specific Power:        {optimal_params['sp_power']:.3f} kW/m³")
     print(f"  Specific Gas Rate:     {optimal_params['sp_gas_rate']:.3f} cm/s")
@@ -305,7 +381,11 @@ def main():
     print(f"  Bubble Zeta Potential: {optimal_params['bubble_z_pot']:.4f} V")
     print(f"  Cell Volume:           {optimal_params['cell_volume']:.1f} m³")
     print(f"  Froth Height:          {optimal_params['froth_height']:.3f} m ({optimal_params['froth_height']*100:.1f} cm)")
-    print(f"\nOptimal Copper Recovery: {optimal_params['optimal_recovery']*100:.2f}%")
+
+    recovery_display = f"{optimal_params['optimal_recovery']*100:.2f}%" if optimal_params['optimal_recovery'] is not None else "N/A"
+    print(f"\nOptimization Metrics:")
+    print(f"  Optimal Copper Recovery: {recovery_display}")
+    print(f"  Combined Objective:      {optimal_params['combined_objective']:.6f}")
     print("="*100)
 
     # Sensitivity analysis example
