@@ -534,6 +534,196 @@ def grind_break(tonnage_input, top_size_input, bottom_size_input, selection_inpu
 
     return grind_break_temp[1:num_size_classes+1, 1]  # Return all size classes from column 1
 
+def copper_leaching_rate(Ea, T, P_O2, n, Phi, H_plus, MFeS2, X_Cu, k0=1.0, R=8.314):
+    """
+    Calculate the copper leaching rate based on shrinking core kinetics.
+
+    Equation: dX_Cu/dt = 3*k0*exp(-Ea/RT)*(P_O2_eff)^n*(1-X_Cu)^(2/3)
+
+    Args:
+        Ea: Activation energy (kJ/mol)
+        T: Temperature (°C)
+        P_O2: Partial pressure of oxygen (bar)
+        n: Stoichiometry parameter (dimensionless)
+        Phi: Mass of solids per solution volume (kg/L)
+        H_plus: H+ ion concentration, typically expressed as -log(pH)
+        MFeS2: Mass fraction of FeS2 (dimensionless)
+        X_Cu: Molar ratio of Cu converted (fraction, 0-1)
+        k0: Pre-exponential factor (1/s), default=1.0
+        R: Universal gas constant (J/mol·K), default=8.314
+
+    Returns:
+        float: Rate of copper conversion (dX_Cu/dt) in 1/s
+
+    Base case parameters (from image):
+        Ea: 70-90 kJ/mol
+        T: 180-202°C
+        P_O2: 10-15 bar
+        n: 0.5-1
+        Phi: 10 kg/L
+        H_plus: -log(pH)
+        MFeS2: varies
+    """
+    # Convert temperature from Celsius to Kelvin
+    T_K = T + 273.15
+
+    # Convert Ea from kJ/mol to J/mol for consistency with R
+    Ea_J = Ea * 1000
+
+    # Calculate effective oxygen pressure (P_O2_eff = P_O2 / (1 + alpha*MFeS2))
+    # For now, assuming P_O2_eff = P_O2 based on the equation shown
+    # This can be modified if the relationship P_O2/(1+alpha*MFeS2) needs to be applied
+    P_O2_eff = P_O2
+
+    # Calculate the leaching rate
+    # dX_Cu/dt = 3*k0*exp(-Ea/RT)*(P_O2_eff)^n*(1-X_Cu)^(2/3)
+    exponential_term = math.exp(-Ea_J / (R * T_K))
+    pressure_term = P_O2_eff ** n
+    conversion_term = (1 - X_Cu) ** (2/3)
+
+    dX_Cu_dt = 3 * k0 * exponential_term * pressure_term * conversion_term
+
+    return dX_Cu_dt
+
+
+def solvent_extraction(C_Cu_in_aq, K_ex, RH, H_plus, O_A):
+    """
+    Calculate output copper concentration from solvent extraction.
+
+    Equation: C_Cu_out^aq = C_Cu_in^aq / (1 + K_ex * [RH]^2 / [H+]^2 * (O/A))
+
+    Args:
+        C_Cu_in_aq: Amount of Cu in feed solution to SX extractant (moles of Cu)
+        K_ex: Extraction equilibrium constant (dimensionless)
+        RH: Extractant concentration (molar)
+        H_plus: Hydrogen ion concentration (molar)
+        O_A: Organic/aqueous solution ratio (dimensionless)
+
+    Returns:
+        float: Output copper concentration (C_Cu_out^aq) in moles
+    """
+    # Calculate the denominator term
+    denominator = 1 + K_ex * (RH ** 2) / (H_plus ** 2) * O_A
+
+    # Calculate output concentration
+    C_Cu_out_aq = C_Cu_in_aq / denominator
+
+    return C_Cu_out_aq
+
+
+def electrowinning_concentration(C_Cu_in, eta_CE, I, n, F, M_Cu):
+    """
+    Calculate output copper concentration from electrowinning.
+
+    Equation: C_Cu_out = C_Cu_in - (eta_CE * I) / (n * F * F)
+
+    Args:
+        C_Cu_in: Input copper concentration (g/mol or appropriate units)
+        eta_CE: Current efficiency (dimensionless, 0-1)
+        I: Current (Amperes)
+        n: Number of electrons per Cu (2 e- per Cu)
+        F: Faraday constant (96485 C/mol)
+        M_Cu: Molecular weight of Cu (63.55 g/mol)
+
+    Returns:
+        float: Output copper concentration (C_Cu_out)
+    """
+    # Calculate concentration change due to electrowinning
+    C_Cu_out = C_Cu_in - (eta_CE * I) / (n * F * F)
+
+    return C_Cu_out
+
+
+def cell_voltage(E_eq, eta_cath, eta_anode, I, R):
+    """
+    Calculate cell voltage for electrowinning.
+
+    Equation: V_cell = E_eq + eta_cath + eta_anode + IR
+
+    Args:
+        E_eq: Nernst equilibrium potential (V)
+        eta_cath: Overpotentials at cathode (V)
+        eta_anode: Overpotentials at anode (V)
+        I: Current (A)
+        R: Resistance (Ohms)
+
+    Returns:
+        float: Cell voltage (V)
+    """
+    V_cell = E_eq + eta_cath + eta_anode + I * R
+
+    return V_cell
+
+
+def nernst_potential(E_Cu_0, a_Cu2, R=8.314, T=298.15, F=96485, n=2):
+    """
+    Calculate Nernst equilibrium potential.
+
+    Equation: E_eq = E_Cu^0 + (RT/2F) * ln(a_Cu2+)
+
+    Args:
+        E_Cu_0: Standard potential for Cu (V), typically 0.34 V
+        a_Cu2: Activity of Cu2+ ions (dimensionless)
+        R: Universal gas constant (J/mol·K), default=8.314
+        T: Temperature (K), default=298.15
+        F: Faraday constant (C/mol), default=96485
+        n: Number of electrons (2 for Cu), default=2
+
+    Returns:
+        float: Nernst equilibrium potential (V)
+    """
+    E_eq = E_Cu_0 + (R * T / (n * F)) * math.log(a_Cu2)
+
+    return E_eq
+
+
+def overpotential(a, j, b):
+    """
+    Calculate overpotential as function of current density.
+
+    Equation: eta = a * ln(j) + b
+
+    Args:
+        a: Tafel slope coefficient (V)
+        j: Current density (I/A)
+        b: Constant (V)
+
+    Returns:
+        float: Overpotential (V)
+    """
+    eta = a * math.log(j) + b
+
+    return eta
+
+
+# Base case parameters for electrowinning
+ELECTROWINNING_BASE_PARAMS = {
+    'M_Cu': 63.55,  # g/mol
+    'n': 2,  # electrons per Cu
+    'F': 96485,  # C/mol
+    'eta_CE': 0.95,  # Current efficiency (midpoint of 0.9-0.98)
+    'E_Cu_0': 0.34,  # Standard potential for Cu (V)
+    'eta_cath_range': (0.1, 0.3),  # Overpotentials cathode (V)
+    'eta_anode_range': (0.3, 0.6),  # Overpotentials anode (V)
+    'T': 298.15,  # Temperature (K)
+    'R': 8.314  # Universal gas constant (J/mol·K)
+}
+
+
+# Base case parameters for copper leaching
+LEACHING_BASE_PARAMS = {
+    'Ea': 80.0,  # Activation energy (kJ/mol) - midpoint of 70-90 range
+    'T': 191.0,  # Temperature (°C) - midpoint of 180-202 range
+    'P_O2': 12.5,  # Partial oxygen pressure (bar) - midpoint of 10-15 range
+    'n': 0.75,  # Stoichiometry - midpoint of 0.5-1 range
+    'Phi': 10.0,  # Mass of solids/solution volume (kg/L)
+    'H_plus': 1.0,  # -log(pH), pH = 1 typical for acidic leaching
+    'MFeS2': 0.1,  # Mass fraction of FeS2 - example value
+    'X_Cu_initial': 0.0,  # Initial copper conversion (0 = no conversion yet)
+    'k0': 1.0,  # Pre-exponential factor (1/s)
+    'R': 8.314  # Universal gas constant (J/mol·K)
+}
+
 
 sg = 4.2 # Specific gravity
 sp_power = 1 # Specific power (W/m^3 before conversion)
@@ -726,6 +916,8 @@ selection_input = [0.1, 0.2, 0.3, 0.4]
 break_intensity = 8
 grinding_breaking = grind_break(tonnage_input, top_size_input, bottom_size_input, selection_input, break_intensity)
 print(grinding_breaking)
+
+
 
 """
 All fitting parameters:
