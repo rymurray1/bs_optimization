@@ -1,7 +1,7 @@
 import math
 import numpy as np
 
-def electrowinning_concentration(C_Cu_in, I, eta_CE=.98, n=2, F=96485):
+def electrowinning_concentration(C_Cu_in=1005, C_Cu_out=1000, eta_CE=.98, n_var=2, f_var=96485):
     """
     Calculate output copper concentration from electrowinning.
 
@@ -19,12 +19,14 @@ def electrowinning_concentration(C_Cu_in, I, eta_CE=.98, n=2, F=96485):
         float: Output copper concentration (C_Cu_out)
     """
     # Calculate concentration change due to electrowinning
+    C_Cu_out = 1000
+    I = (n_var*f_var*(C_Cu_in-C_Cu_out))/eta_CE
+    C_Cu_in = C_Cu_out + (eta_CE * I) / (n_var * f_var)
+    recovery_rate = (C_Cu_in - C_Cu_out) / C_Cu_out
 
-    C_Cu_out = C_Cu_in - (eta_CE * I) / (n * F)
+    return C_Cu_out, C_Cu_in, recovery_rate
 
-    return C_Cu_out
-
-def cell_voltage(E_eq, eta_cath = .1, eta_anode = .3, IR = .5):
+def cell_voltage(E_eq = .34, eta_cath = .1, eta_anode = .3, IR = .5):
     """
     Calculate cell voltage for electrowinning.
 
@@ -61,7 +63,8 @@ def nernst_potential(E_Cu_0=.34, a_Cu2=1, R=8.314, T=298.15, F=96485, n=2):
     Returns:
         float: Nernst equilibrium potential (V)
     """
-    E_eq = E_Cu_0 + (R * T / (n * F)) * math.log(a_Cu2)
+    RT_nF = 0
+    E_eq = E_Cu_0 + (RT_nF) * math.log(a_Cu2)
 
     return E_eq
 
@@ -83,15 +86,5 @@ def overpotential(a, j, b):
 
     return eta
 
-if __name__ == "__main__":
-    # Example usage
-    C_Cu_in = 10.0  # g/L
-    eta_CE = 0.95
-    I = 500.0  # Amperes
-
-    C_Cu_out = electrowinning_concentration(C_Cu_in, eta_CE, I)
-    print(f"Output Copper Concentration: {C_Cu_out:.2f} g/L")
-
-    E_eq = nernst_potential(a_Cu2=0.1)
-    V_cell = cell_voltage(E_eq)
-    print(f"Cell Voltage: {V_cell:.2f} V")
+cu_out, cu_in, rate = electrowinning_concentration()
+print(cu_out, cu_in, rate)

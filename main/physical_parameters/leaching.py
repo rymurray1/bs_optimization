@@ -1,10 +1,19 @@
 import math
+import scipy.integrate
 
-def copper_leaching_rate(Ea, T, P_O2, n, Phi, H_plus, MFeS2, X_Cu, k0=1.0, R=8.314):
+variables = {
+    "Ea": (70, 90),  # kJ/mol
+    "T": (180, 202),  # °C
+    "P_O2": (10, 15),  # bar
+    "n": (0.5, 1),  # dimensionless
+    "Phi": 10,  # kg/L
+    "H_plus": (.1-.3),  # -log(pH)
+    "P(O2_eff)": (10-15)  # effective oxygen pressure
+}
+
+def leaching_copper_recovery(Ea, T, P_O2, n, H_plus, MFeS2, X_Cu, Phi=.1, k0=2500, R=8.314, leach_time=12):
     """
-    Calculate the copper leaching rate based on shrinking core kinetics.
-
-    Equation: dX_Cu/dt = 3*k0*exp(-Ea/RT)*(P_O2_eff)^n*(1-X_Cu)^(2/3)
+    Calculate total copper recovery after a given leaching time.
 
     Args:
         Ea: Activation energy (kJ/mol)
@@ -14,90 +23,96 @@ def copper_leaching_rate(Ea, T, P_O2, n, Phi, H_plus, MFeS2, X_Cu, k0=1.0, R=8.3
         Phi: Mass of solids per solution volume (kg/L)
         H_plus: H+ ion concentration, typically expressed as -log(pH)
         MFeS2: Mass fraction of FeS2 (dimensionless)
-        X_Cu: Molar ratio of Cu converted (fraction, 0-1)
+        X_Cu: Initial copper conversion (not used, kept for compatibility)
         k0: Pre-exponential factor (1/s), default=1.0
         R: Universal gas constant (J/mol·K), default=8.314
+        leach_time: Leaching time in hours
 
     Returns:
-        float: Rate of copper conversion (dX_Cu/dt) in 1/s
-
-    Base case parameters (from image):
-        Ea: 70-90 kJ/mol
-        T: 180-202°C
-        P_O2: 10-15 bar
-        n: 0.5-1
-        Phi: 10 kg/L
-        H_plus: -log(pH)
-        MFeS2: varies
+        X_Cu_final: Final copper recovery fraction (0-1)
+        solution: ODE solution object
     """
-    # Convert temperature from Celsius to Kelvin
+    from scipy.integrate import solve_ivp
+
+    MFeS2 = .86 * 1000 * .58
     T_K = T + 273.15
-
-    # Convert Ea from kJ/mol to J/mol for consistency with R
     Ea_J = Ea * 1000
-
-    # Calculate effective oxygen pressure (P_O2_eff = P_O2 / (1 + alpha*MFeS2))
-    # For now, assuming P_O2_eff = P_O2 based on the equation shown
-    # This can be modified if the relationship P_O2/(1+alpha*MFeS2) needs to be applied
     P_O2_eff = P_O2
 
-    # Calculate the leaching rate
-    # dX_Cu/dt = 3*k0*exp(-Ea/RT)*(P_O2_eff)^n*(1-X_Cu)^(2/3)
-    exponential_term = math.exp(-Ea_J / (R * T_K))
-    pressure_term = P_O2_eff ** n
-    conversion_term = (1 - X_Cu) ** (2/3)
+    def copper_leaching_rate(t, y):
+        """
+        ODE function for solve_ivp.
 
-    dX_Cu_dt = 3 * k0 * exponential_term * pressure_term * conversion_term
+        Equation: dX_Cu/dt = 3*k0*exp(-Ea/RT)*(P_O2_eff)^n*(1-X_Cu)^(2/3)
 
-    return dX_Cu_dt
+        Args:
+            t: time (seconds)
+            y: state vector [X_Cu]
+
+        Returns:
+            [dX_Cu/dt]
+        """
+        X_Cu_current = y[0]
+
+        # Calculate the leaching rate
+        exponential_term = math.exp(-Ea_J / (R * T_K))
+        pressure_term = P_O2_eff ** n
+        conversion_term = (1 - X_Cu_current) ** (2/3)
+
+        dX_Cu_dt = 3 * k0 * exponential_term * pressure_term * conversion_term
+        return [dX_Cu_dt]
+
+    X_Cu_initial = [0.0]
+    t_span = (0, leach_time * 3600)
+
+    solution = solve_ivp(copper_leaching_rate, t_span, X_Cu_initial, dense_output=True)
+
+    X_Cu_final = solution.y[0][-1]
+
+    return X_Cu_final, solution
 
 
-# Test leaching
+def calculate_acid_consumption(Cu_recovered_kg):
+    """
+    Calculate acid consumption for copper leaching based on chalcopyrite stoichiometry.
+
+    Stoichiometry for chalcopyrite (CuFeS2):
+    CuFeS2 + 4H2SO4 + O2 -> CuSO4 + FeSO4 + 4S + 4H2O
+
+    Args:
+        Cu_recovered_kg: Mass of copper recovered (kg)
+
+    Returns:
+        dict with acid consumption data
+    """
+    MW_Cu = 63.546  # g/mol
+    MW_H2SO4 = 98.079  # g/mol
+
+    # Stoichiometric ratio: 4 mol H2SO4 per 1 mol Cu
+    acid_stoich_ratio = 4 * MW_H2SO4 / MW_Cu  # kg H2SO4 / kg Cu = 6.17
+
+    # Total acid consumption
+    acid_consumption_kg = Cu_recovered_kg * acid_stoich_ratio
+
+    return {
+        "acid_consumption_kg": acid_consumption_kg,
+        "acid_per_kg_cu": acid_stoich_ratio,
+        "Cu_recovered_kg": Cu_recovered_kg
+    }
+
 if __name__ == "__main__":
-    print("COPPER LEACHING TEST")
-    print("=" * 80)
+    print("Testing leaching_copper_recovery:")
+    X_Cu_final, solution = leaching_copper_recovery(Ea=80, T=190, P_O2=12, n=0.75, H_plus=0.2, MFeS2=0.5, X_Cu=0)
+    print(f"Final copper recovery: {X_Cu_final:.4f} ({X_Cu_final*100:.2f}%)")
 
-    # Base case parameters
-    Ea = 80  # kJ/mol
-    T = 190  # °C
-    P_O2 = 12  # bar
-    n = 0.75
-    Phi = 10  # kg/L
-    H_plus = 1.0  # -log(pH)
-    MFeS2 = 0.1
-    X_Cu = 0.0  # Starting conversion
-    k0 = 1.0
+    print("\nTesting calculate_acid_consumption:")
+    result = calculate_acid_consumption(Cu_recovered_kg=1000)
+    print(f"Copper recovered: {result['Cu_recovered_kg']} kg")
+    print(f"Acid consumption: {result['acid_consumption_kg']:.2f} kg")
+    print(f"Acid per kg Cu: {result['acid_per_kg_cu']:.2f}")
 
-    print("Leaching conditions:")
-    print(f"  Temperature: {T}°C")
-    print(f"  Oxygen pressure: {P_O2} bar")
-    print(f"  Activation energy: {Ea} kJ/mol")
-    print(f"  Stoichiometry parameter (n): {n}")
-    print(f"  Initial conversion: {X_Cu*100}%")
-    print()
 
-    # Calculate initial leaching rate
-    rate = copper_leaching_rate(Ea, T, P_O2, n, Phi, H_plus, MFeS2, X_Cu, k0)
+"""
+total acid consumption for the system should be 6.17 * feed * 
 
-    print(f"Initial leaching rate: {rate:.6e} s^-1")
-    print(f"Initial leaching rate: {rate*3600:.6e} hr^-1")
-    print()
-
-    # Simulate leaching over time
-    print("Leaching progression:")
-    print(f"{'Time (hr)':>10} | {'Conversion':>12} | {'Rate (1/hr)':>15}")
-    print("-" * 80)
-
-    time_hours = [0, 1, 2, 4, 8, 16, 24, 48]
-    for t in time_hours:
-        # Simple approximation: X_Cu increases over time
-        # In reality, this would require numerical integration
-        # For now, just show how rate changes with conversion
-        X_Cu_t = min(0.95, t / 50)  # Simplified conversion over time
-        rate_t = copper_leaching_rate(Ea, T, P_O2, n, Phi, H_plus, MFeS2, X_Cu_t, k0)
-
-        print(f"{t:10.1f} | {X_Cu_t*100:11.2f}% | {rate_t*3600:15.6e}")
-
-    print()
-    print("NOTE: This shows how leaching rate decreases as conversion increases")
-    print("due to the (1-X_Cu)^(2/3) term (shrinking core model)")
+"""
