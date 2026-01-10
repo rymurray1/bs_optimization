@@ -13,7 +13,7 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #2C4F5C 0%, #1a2f38 100%);
             min-height: 100vh;
             padding: 20px;
         }
@@ -32,6 +32,19 @@
             margin-bottom: 10px;
             font-size: 2.5em;
             text-align: center;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 30px;
+            border-top: 2px solid #e0e0e0;
+        }
+
+        .logo {
+            height: 50px;
+            width: auto;
+            opacity: 0.8;
         }
 
         .subtitle {
@@ -80,7 +93,7 @@
             width: 20px;
             height: 20px;
             border-radius: 50%;
-            background: #667eea;
+            background: #2C4F5C;
             cursor: pointer;
         }
 
@@ -88,7 +101,7 @@
             width: 20px;
             height: 20px;
             border-radius: 50%;
-            background: #667eea;
+            background: #2C4F5C;
             cursor: pointer;
         }
 
@@ -96,17 +109,17 @@
             min-width: 150px;
             padding: 10px 15px;
             background: white;
-            border: 2px solid #667eea;
+            border: 2px solid #2C4F5C;
             border-radius: 8px;
             text-align: center;
             font-weight: 600;
-            color: #667eea;
+            color: #2C4F5C;
         }
 
         button {
             width: 100%;
             padding: 15px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #2C4F5C 0%, #1a2f38 100%);
             color: white;
             border: none;
             border-radius: 10px;
@@ -133,7 +146,7 @@
 
         .spinner {
             border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
+            border-top: 4px solid #2C4F5C;
             border-radius: 50%;
             width: 50px;
             height: 50px;
@@ -155,7 +168,7 @@
             padding: 25px;
             border-radius: 15px;
             margin-bottom: 25px;
-            border-left: 5px solid #667eea;
+            border-left: 5px solid #2C4F5C;
         }
 
         .card-grid {
@@ -206,7 +219,7 @@
         }
 
         .parameters-table th {
-            background: #667eea;
+            background: #2C4F5C;
             color: white;
             font-weight: 600;
         }
@@ -217,7 +230,7 @@
             color: #333;
             margin-bottom: 15px;
             padding-bottom: 10px;
-            border-bottom: 2px solid #667eea;
+            border-bottom: 2px solid #2C4F5C;
         }
 
         .error {
@@ -232,7 +245,10 @@
 </head>
 <body>
     <div class="container">
-        <h1>🏭 Copper Production Optimizer</h1>
+        <div class="header">
+            <img src="{{ url_for('static', filename='blueshift_logo.png') }}" alt="BlueShift" class="logo">
+            <h1>Copper Production Optimizer</h1>
+        </div>
         <p class="subtitle">Optimize your mineral extraction process with physics-based modeling</p>
 
         <div class="input-section">
@@ -279,7 +295,7 @@
                         <div class="metric-value" id="npv_improvement">$0</div>
                     </div>
                 </div>
-                <div style="text-align: center; font-size: 1.3em; font-weight: 600; color: #667eea;" id="recommendation"></div>
+                <div style="text-align: center; font-size: 1.3em; font-weight: 600; color: #2C4F5C;" id="recommendation"></div>
             </div>
 
             <div class="card-grid">
@@ -353,27 +369,27 @@
             <div class="comparison-card">
                 <h3 class="section-title">⚙️ Optimized Operating Parameters</h3>
 
-                <h4 style="color: #667eea; margin-top: 20px; margin-bottom: 10px;">Grinding</h4>
+                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">Grinding</h4>
                 <table class="parameters-table">
                     <tbody id="grinding_params"></tbody>
                 </table>
 
-                <h4 style="color: #667eea; margin-top: 20px; margin-bottom: 10px;">Flotation</h4>
+                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">Flotation</h4>
                 <table class="parameters-table">
                     <tbody id="flotation_params"></tbody>
                 </table>
 
-                <h4 style="color: #667eea; margin-top: 20px; margin-bottom: 10px;">Leaching</h4>
+                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">Leaching</h4>
                 <table class="parameters-table">
                     <tbody id="leaching_params"></tbody>
                 </table>
 
-                <h4 style="color: #667eea; margin-top: 20px; margin-bottom: 10px;">Solvent Extraction</h4>
+                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">Solvent Extraction</h4>
                 <table class="parameters-table">
                     <tbody id="sx_params"></tbody>
                 </table>
 
-                <h4 style="color: #667eea; margin-top: 20px; margin-bottom: 10px;">Electrowinning</h4>
+                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">Electrowinning</h4>
                 <table class="parameters-table">
                     <tbody id="ew_params"></tbody>
                 </table>
