@@ -11,7 +11,7 @@ variables = {
     "P(O2_eff)": (10-15)  # effective oxygen pressure
 }
 
-def leaching_copper_recovery(Ea, T, P_O2, n, H_plus, MFeS2, X_Cu, Phi=.1, k0=2500, R=8.314, leach_time=12):
+def leaching_copper_recovery(Ea, T, P_O2, n, H_plus, MFeS2, X_Cu, Phi=.1, k0=500, R=8.314, leach_time=12):
     """
     Calculate total copper recovery after a given leaching time.
 
@@ -54,6 +54,10 @@ def leaching_copper_recovery(Ea, T, P_O2, n, H_plus, MFeS2, X_Cu, Phi=.1, k0=250
         """
         X_Cu_current = y[0]
 
+        # Prevent X_Cu from exceeding 1.0
+        if X_Cu_current >= 1.0:
+            return [0.0]
+
         # Calculate the leaching rate
         exponential_term = math.exp(-Ea_J / (R * T_K))
         pressure_term = P_O2_eff ** n
@@ -62,12 +66,20 @@ def leaching_copper_recovery(Ea, T, P_O2, n, H_plus, MFeS2, X_Cu, Phi=.1, k0=250
         dX_Cu_dt = 3 * k0 * exponential_term * pressure_term * conversion_term
         return [dX_Cu_dt]
 
+    def max_conversion(t, y):
+        """Event function to stop integration when X_Cu reaches 1.0"""
+        return y[0] - 1.0
+
+    max_conversion.terminal = True
+    max_conversion.direction = 1
+
     X_Cu_initial = [0.0]
     t_span = (0, leach_time * 3600)
 
-    solution = solve_ivp(copper_leaching_rate, t_span, X_Cu_initial, dense_output=True)
+    solution = solve_ivp(copper_leaching_rate, t_span, X_Cu_initial,
+                        events=max_conversion, dense_output=True)
 
-    X_Cu_final = solution.y[0][-1]
+    X_Cu_final = min(solution.y[0][-1], 1.0)  # Cap at 100%
 
     return X_Cu_final, solution
 
@@ -106,13 +118,7 @@ if __name__ == "__main__":
     print(f"Final copper recovery: {X_Cu_final:.4f} ({X_Cu_final*100:.2f}%)")
 
     print("\nTesting calculate_acid_consumption:")
-    result = calculate_acid_consumption(Cu_recovered_kg=1000)
+    result = calculate_acid_consumption(Cu_recovered_kg=100000)
     print(f"Copper recovered: {result['Cu_recovered_kg']} kg")
     print(f"Acid consumption: {result['acid_consumption_kg']:.2f} kg")
     print(f"Acid per kg Cu: {result['acid_per_kg_cu']:.2f}")
-
-
-"""
-total acid consumption for the system should be 6.17 * feed * 
-
-"""

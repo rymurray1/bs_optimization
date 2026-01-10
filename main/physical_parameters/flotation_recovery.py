@@ -7,6 +7,7 @@ WATER_DENSITY = 1000  # kg/m^3
 AIR_DENSITY = 1.225  # kg/m^3
 WATER_VISCOSITY = 0.001  # Pa·s
 GRAVITY = 9.81  # m/s^2
+CFA_DENSITY = 0.0015 #tons/m^3
 
 # Global variables for energy barrier calculation
 energy_barrier_value = 0.0
@@ -24,7 +25,7 @@ def calc_energy_barrier(particle_diam, dielectric, permitivity, contact_angle, b
     energy_barrier_value = 1e-18  # Calibrated value in Joules (targeting ~90% overall recovery)
     drag_beta_value = 1.0
 
-def flot_rec(fitting_parameters, flotation_constants, optimizable_variables, inputs):
+def flot_rec(fitting_parameters, flotation_constants, opt_var, inputs):
     """
     Calculate flotation recovery.
 
@@ -52,7 +53,7 @@ def flot_rec(fitting_parameters, flotation_constants, optimizable_variables, inp
 
     # Extract flotation constants
     specific_gravity = flotation_constants['specific_gravity']
-    grade = flotation_constants['grade']
+    grade = inputs['copper_grade']
     permitivity = flotation_constants['permitivity']
     dielectric = flotation_constants['dielectric']
     pe = flotation_constants['pe']
@@ -60,19 +61,20 @@ def flot_rec(fitting_parameters, flotation_constants, optimizable_variables, inp
     bbl_ratio = flotation_constants['bbl_ratio']
 
     # Extract optimizable variables
-    particle_diam = optimizable_variables['particle_size']
-    contact_angle = optimizable_variables['contact_angle']
-    bubble_z_pot = optimizable_variables['bubble_z_pot']
-    particle_z_pot = optimizable_variables['particle_z_pot']
-    specific_power_input = optimizable_variables['sp_power']
-    superficial_gas_velocity = optimizable_variables['sp_gas_rate']
-    air_fraction = optimizable_variables['air_fraction']
-    slurry_fraction = optimizable_variables['slurry_fraction']
-    num_cells = optimizable_variables['num_cells']
-    ret_time = optimizable_variables['ret_time']
-    cell_volume = optimizable_variables['cell_volume']
-    froth_height = optimizable_variables['froth_height']
-    frother_conc = optimizable_variables['frother_conc']
+    particle_diam = opt_var['particle_size']
+    contact_angle = opt_var['contact_angle']
+    bubble_z_pot = opt_var['bubble_z_pot']
+    particle_z_pot = opt_var['particle_z_pot']
+    specific_power_input = opt_var['sp_power']
+    superficial_gas_velocity = opt_var['sp_gas_rate']
+    air_fraction = opt_var['air_fraction']
+    slurry_fraction = opt_var['slurry_fraction']
+    num_cells = opt_var['num_cells']
+    ret_time = opt_var['ret_time']
+    ret_time_seconds = ret_time*60
+    cell_volume = opt_var['cell_volume']
+    froth_height = opt_var['froth_height']
+    frother_conc = opt_var['frother_conc']
 
     # Extract inputs
     froth_type = inputs.get('frother_type', 2)
@@ -116,7 +118,7 @@ def flot_rec(fitting_parameters, flotation_constants, optimizable_variables, inp
 
     # Energy Dissipation
     total_dens = air_fraction * AIR_DENSITY + (1 - air_fraction) * slurry_fraction * particle_dens + (1 - slurry_fraction) * WATER_DENSITY
-    e_mean = specific_power_input/ total_dens
+    e_mean = specific_power_input / total_dens
     e_bulk = bulk_zone * e_mean
     e_impeller = impeller_zone * e_mean
 
@@ -196,16 +198,35 @@ def flot_rec(fitting_parameters, flotation_constants, optimizable_variables, inp
     recovery_ci = 1 - 4 * Aa * math.exp(pe / 2) / ((1 + Aa) ** 2 * math.exp(Aa * pe / 2) - (1 - Aa) ** 2 * math.exp(-Aa * pe / 2))
 
     recovery_i = recovery_ci * froth_recovery_factor / (recovery_ci * froth_recovery_factor + 1 - recovery_ci)  # eq 6.2 finch & dobby
+    #total energy consumption
+    total_power = specific_power_input * cell_volume * num_cells
+    total_power_kw = total_power / 1000
+    total_energy_kw = total_power_kw * ret_time * 60
+
+    #total water consumption
+    particle_dens = specific_gravity *1000
+    q_slurry = (cell_volume * num_cells) / ret_time_seconds
+    q_solids = q_slurry * slurry_fraction
+    q_water = q_slurry * (1- slurry_fraction)
+    particle_dens = specific_gravity * 1000
+    m_dot_solids = q_solids * particle_dens
+    solids_t_per_pass = (slurry_fraction * cell_volume * num_cells * particle_dens) / 1000
+    solids_t_per_pass = (slurry_fraction * cell_volume * num_cells * particle_dens) / 1000
+
+    water_m3_per_t = ((1-slurry_fraction) / (slurry_fraction * particle_dens))*1000
+    water_m3_per_pass = water_m3_per_t * solids_t_per_pass
+    total_water = cell_volume * num_cells #m^3
 
     if water_or_particle == "Water":
         return r_water_max
     elif water_or_particle == "Particle":
-        return 1 - (1 - recovery_i) ** num_cells
+        recovery_rate = 1 - (1 - recovery_i) ** num_cells
+        return recovery_rate, total_energy_kw, water_m3_per_pass
     else:
         return 0.0
 
 
-FITTING_PARAMETERS = {
+fitting_parameters = {
     'b': 2,
     'alpha': 0.10,
     'coverage': 0.525,  
@@ -214,7 +235,7 @@ FITTING_PARAMETERS = {
     'bulk_zone': 0.5
 }
 
-FLOTATION_CONSTANTS = {
+flotation_constants = {
     "water_density": 1000,
     "air_density": 1.225,
     "water_viscosity": 0.001,
@@ -227,7 +248,7 @@ FLOTATION_CONSTANTS = {
     "bbl_ratio": 10
 }
 
-OPTIMIZABLE_VARIABLES = {
+optimizable_variables = {
     "particle_size": (0, 600),
     "contact_angle": (0, 90),
     "bubble_z_pot": (-0.02, 0.05),
@@ -245,7 +266,7 @@ OPTIMIZABLE_VARIABLES = {
     "frother_type": (1, 4)  # 1=pure water, 2=MIBC, 3=PPG 400, 4=Octanol
 }
 
-INPUTS = {
+inputs  = {
     "copper_grade":28
 }
 
@@ -257,11 +278,11 @@ if __name__ == "__main__":
         'contact_angle': 52.3,
         'bubble_z_pot': -0.03,
         'particle_z_pot': -50,
-        'sp_power': 1,
+        'sp_power': 1.1,
         'sp_gas_rate': 2,
         'air_fraction': 0.05,
         'slurry_fraction': 0.15,
-        'num_cells': 1,
+        'num_cells': 5,
         'ret_time': 23.67,
         'cell_volume': 700,
         'froth_height': 0.165,
@@ -277,13 +298,15 @@ if __name__ == "__main__":
     'water_or_particle': 'Particle'
     }
     # Calculate recovery
-    recovery = flot_rec(
-        FITTING_PARAMETERS,
-        FLOTATION_CONSTANTS,
+    recovery, tot_energy, total_water = flot_rec(
+        fitting_parameters,
+        flotation_constants,
         test_optimizable_vars,
         test_inputs
     )
 
     print(f"Flotation recovery: {recovery*100:.2f}%")
-
+    print(f"Energy: ${(tot_energy / 1000)*50}")
+    print(f"Total Water Used: {total_water:.2f}")
+    
     

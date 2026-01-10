@@ -18,8 +18,8 @@ from tea import (
     residence_time_flotation, cfa_density, froth_factor_excess,
     seconds_per_op_year, residence_time_flotation_sec,
     water_cost, flotation_volume_required, flotation_rates,
-    sl_ratio, acid_concentration, nitric_acid_density,
-    residence_time_leaching, leaching_volume_required, leaching_rates
+    sl_ratio, acid_concentration, sulfuric_acid_density,
+    residence_time_leaching, residence_time_leaching_sec, leaching_volume_required, leaching_rates
 )
 from grind_break import grind_break
 from flotation_recovery import flot_rec
@@ -172,49 +172,97 @@ class FlotationStage:
         """
         self.flotation_work = flotation_work_kwh_per_t
 
-    def calculate_capex(self, throughput_tpa):
+    def calculate_capex(self, throughput_tpa, ret_time=None, num_cells=1):
         """
         CAPEX = vertical agitated tank cost
 
         Steps:
-        1. Calculate required tank volume from throughput
+        1. Calculate required tank volume from throughput and retention time
         2. Scale cost using power-law
         3. Apply inflation and lang factors
+
+        Args:
+            throughput_tpa: Throughput in tonnes per annum
+            ret_time: Retention time (minutes) - if None, uses default from tea.py
+            num_cells: Number of cells (default 1)
         """
-        # Step 1: Calculate required volume
-        volume_required = flotation_volume_required(throughput_tpa)
+        # Step 1: Calculate required volume based on retention time
+        if ret_time is None:
+            ret_time_sec = residence_time_flotation_sec
+        else:
+            ret_time_sec = ret_time * 60  # Convert minutes to seconds
 
-        # Step 2: Equipment cost with power-law scaling
-        tank_cost = equipment_cost('vertical_tank', volume_required)
+        rates = flotation_rates(throughput_tpa)
+        volume_per_cell = rates['total_rate'] * ret_time_sec * (1 + froth_factor_excess)
 
-        # Step 3: Apply factors
-        installed_cost = tank_cost * inflation_factor * lang_factor
+        # Step 2: Equipment cost with power-law scaling per cell
+        # Apply 1.2x volume factor for flotation cells (accounts for froth zone)
+        # Formula from Excel line 136: 12300 * (Volume * 1.2 / 3.8)^0.5
+        flotation_volume_adjusted = volume_per_cell * 1.2
+        single_cell_cost = equipment_cost('vertical_tank', flotation_volume_adjusted)
 
-        return installed_cost
+        # Step 3: Total cost = cost per cell × number of cells, apply factors
+        total_cost = single_cell_cost * num_cells * inflation_factor * lang_factor
 
-    def calculate_opex(self, throughput_tpa):
+        return total_cost
+
+    def calculate_opex(self, throughput_tpa, sp_power=None, ret_time=None,
+                       num_cells=1, frother_conc=None, frother_price_per_kg=5):
         """
-        OPEX = annual power cost + water cost
+        OPEX = annual power cost + water cost + frother reagent cost
 
         Steps:
-        1. Calculate annual power consumption
+        1. Calculate annual power consumption from sp_power and tank volume
         2. Calculate annual water consumption
-        3. Sum costs
+        3. Calculate frother reagent cost
+        4. Sum costs
+
+        Args:
+            throughput_tpa: Throughput in tonnes per annum
+            sp_power: Specific power (kW/m³) - if None, uses default calculation
+            ret_time: Retention time (minutes) - needed to calculate volume
+            num_cells: Number of cells
+            frother_conc: Frother concentration (g/L) - if None, no frother cost
+            frother_price_per_kg: Frother reagent price ($/kg, default 5)
         """
-        # Power cost
-        annual_power_kwh = throughput_tpa * self.flotation_work
+        # Calculate tank volume
+        if ret_time is None:
+            ret_time_sec = residence_time_flotation_sec
+        else:
+            ret_time_sec = ret_time * 60
+
+        rates = flotation_rates(throughput_tpa)
+        volume_per_cell = rates['total_rate'] * ret_time_sec * (1 + froth_factor_excess)
+        total_volume = volume_per_cell * num_cells
+
+        # Power cost from sp_power
+        if sp_power is None:
+            annual_power_kwh = throughput_tpa * self.flotation_work
+        else:
+            power_kw = sp_power * total_volume
+            annual_power_kwh = power_kw * hours_per_op_year
+
         annual_power_mwh = annual_power_kwh / 1000
         power_cost = annual_power_mwh * electricity_cost
 
-        # Water cost
-        rates = flotation_rates(throughput_tpa)
+        # Water cost (unchanged)
         annual_water_m3 = rates['water_rate'] * seconds_per_op_year
         water_cost_annual = annual_water_m3 * water_cost
+
+        # Frother reagent cost (simple: concentration × flow × price)
+        if frother_conc is not None:
+            frother_kg_per_m3 = frother_conc / 1000  # g/L to kg/m³
+            annual_solution_m3 = rates['total_rate'] * seconds_per_op_year
+            annual_frother_kg = frother_kg_per_m3 * annual_solution_m3
+            annual_frother_cost = annual_frother_kg * frother_price_per_kg
+        else:
+            annual_frother_cost = 0
 
         return {
             'power': power_cost,
             'water': water_cost_annual,
-            'total': power_cost + water_cost_annual
+            'frother': annual_frother_cost,
+            'total': power_cost + water_cost_annual + annual_frother_cost
         }
 
     def process(self, fitting_parameters, flotation_constants, optimizable_vars, inputs):
@@ -237,8 +285,8 @@ class FlotationStage:
             dict with keys:
                 - 'recovery': Flotation recovery (0-1)
                 - 'feed_tonnage': Feed tonnage to flotation
-                - 'concentrate_tonnage': Concentrate tonnage (feed × recovery)
-                - 'tails_tonnage': Tailings tonnage (feed × (1-recovery))
+                - 'concentrate_tonnage': Concentrate tonnage (feed * recovery)
+                - 'tails_tonnage': Tailings tonnage (feed * (1-recovery))
                 - 'particle_size': Particle size used (microns)
                 - 'contact_angle': Contact angle used (degrees)
         """
@@ -273,7 +321,7 @@ class LeachingStage:
     Key dependency: Uses concentrate tonnage from flotation recovery.
     """
 
-    def __init__(self, acid_price_per_tonne=100, acid_recovery_fraction=0.92):
+    def __init__(self, acid_price_per_tonne=129, acid_recovery_fraction=0.92):
         """
         Args:
             acid_price_per_tonne: Sulfuric acid price ($/tonne)
@@ -286,20 +334,27 @@ class LeachingStage:
         self.acid_price = acid_price_per_tonne
         self.acid_recovery = acid_recovery_fraction
 
-    def calculate_capex(self, concentrate_tpa):
+    def calculate_capex(self, concentrate_tpa, leach_time=None):
         """
         CAPEX = atmospheric tank cost
 
         Steps:
-        1. Calculate required tank volume from concentrate throughput
+        1. Calculate required tank volume from concentrate throughput and leach time
         2. Scale cost using power-law
         3. Apply inflation and lang factors
 
         Args:
             concentrate_tpa: Concentrate throughput (NOT ore feed!)
+            leach_time: Leaching time (hours) - if None, uses default from tea.py
         """
-        # Calculate required volume
-        volume_required = leaching_volume_required(concentrate_tpa)
+        # Calculate volume based on leach time
+        if leach_time is None:
+            leach_time_sec = residence_time_leaching_sec
+        else:
+            leach_time_sec = leach_time * 3600  # hours to seconds
+
+        rates = leaching_rates(concentrate_tpa)
+        volume_required = rates['total_rate'] * leach_time_sec
 
         # Equipment cost with power-law scaling
         tank_cost = equipment_cost('atm_tank', volume_required)
@@ -549,47 +604,43 @@ class ElectrowinningStage:
         self.current_efficiency = current_efficiency
         self.cell_cost_per_m2 = cell_cost_per_m2
 
-    def calculate_capex(self, copper_plated_tpa):
+    def calculate_capex(self, copper_feed_kg_per_year, cu_concentration_kg_per_m3=45, residence_time_hours=36):
         """
-        CAPEX = electrowinning cell equipment cost
+        CAPEX = electrowinning tank equipment cost
 
         Steps:
-        1. Calculate required cathode area from production rate
-        2. Estimate equipment cost per area
-        3. Apply inflation and lang factors
+        1. Calculate solution volume from copper feed and electrolyte concentration
+        2. Calculate required tank volume from residence time
+        3. Apply cost equation: Cost = 9300 * ((volume / 0.38)^0.53)
+        4. Apply inflation and lang factors
 
         Args:
-            copper_plated_tpa: Copper production rate (tonnes/year)
+            copper_feed_kg_per_year: Copper from SX (kg/year)
+            cu_concentration_kg_per_m3: Copper concentration in electrolyte (kg/m3), typical 40-50
+            residence_time_hours: Residence time in tank (hours), typical 24-48
 
         Returns:
             Installed CAPEX ($)
         """
-        # Faraday's law: kg Cu = (I * t * M_Cu * eta) / (n * F)
-        # Rearrange for current: I = (kg Cu * n * F) / (t * M_Cu * eta)
+        # Solution flow rate based on copper feed from SX
+        # Solution volume (m3/year) = copper mass (kg/year) / concentration (kg/m3)
+        solution_volume_m3_per_year = copper_feed_kg_per_year / cu_concentration_kg_per_m3
 
-        MW_Cu = 63.546  # g/mol
-        F = 96485  # C/mol (Faraday constant)
-        n = 2  # electrons per Cu atom
+        # Convert to hourly flow rate
+        solution_flow_m3_per_hour = solution_volume_m3_per_year / hours_per_op_year
 
-        # Annual copper production
-        copper_kg_per_year = copper_plated_tpa * 1000
+        # Tank volume required based on residence time
+        volume_required = solution_flow_m3_per_hour * residence_time_hours
 
-        # Operating time per year (seconds)
-        operating_seconds = seconds_per_op_year
+        # Equipment cost using power-law equation
+        # Cost = 9300 * ((volume / 0.38)^0.53)
+        basis_volume = 0.38  # m3
+        cost_coefficient = 9300  # $
+        exponent = 0.53
+        equipment_cost = cost_coefficient * ((volume_required / basis_volume) ** exponent)
 
-        # Required current (Amperes)
-        required_current = (copper_kg_per_year * 1000 * n * F) / (operating_seconds * MW_Cu * self.current_efficiency)
-
-        # Required cathode area (m2)
-        # Current = current_density × area
-        cathode_area = required_current / self.current_density
-
-        # Equipment cost (cell cost per m2 is typically installed cost)
-        equipment_cost = cathode_area * self.cell_cost_per_m2
-
-        # Apply only inflation factor (cell_cost_per_m2 already includes installation)
-        # Lang factor NOT applied since EW cell costs are quoted as installed costs
-        installed_cost = equipment_cost * inflation_factor
+        # Apply inflation and lang factors
+        installed_cost = equipment_cost * lang_factor
 
         return installed_cost
 
@@ -683,274 +734,3 @@ class ElectrowinningStage:
             'copper_remaining_kg': copper_remaining_kg
         }
 
-
-def test_grinding():
-    """Test grinding stage with default parameters."""
-    print("="*80)
-    print("GRINDING STAGE - COST INTEGRATION TEST")
-    print("="*80)
-
-    # Create grinding stage with default parameters from tea.py
-    grinding = GrindingStage()
-
-    print(f"\nGrinding Parameters:")
-    print(f"  Feed size: {grinding.feed_size} microns")
-    print(f"  Product size: {grinding.product_size} microns")
-    print(f"  Work index: {grinding.work_index:.2f} kWh/t")
-    print(f"  Specific work: {grinding.work:.2f} kWh/t")
-
-    # Test with example throughput
-    throughput_tpa = 100000
-
-    print(f"\nThroughput: {throughput_tpa} tpa")
-
-    # Calculate costs
-    capex = grinding.calculate_capex(throughput_tpa)
-    opex = grinding.calculate_opex(throughput_tpa)
-
-    print(f"\nCosts:")
-    print(f"  CAPEX (installed): ${capex:,.0f}")
-    print(f"  Annual OPEX: ${opex:,.0f}/year")
-
-    # Show intermediate calculations for transparency
-    required_power_kw = throughput_tpa * grinding.work / hours_per_op_year
-    annual_power_kwh = throughput_tpa * grinding.work
-
-    print(f"\nIntermediate Calculations:")
-    print(f"  Required power: {required_power_kw:.2f} kW")
-    print(f"  Annual energy: {annual_power_kwh:,.0f} kWh/year")
-    print(f"  Annual energy: {annual_power_kwh/1000:,.2f} MWh/year")
-
-    print("="*80)
-
-
-def test_integrated_process():
-    """Test integrated grinding to flotation process with costs."""
-    print("\n" + "="*80)
-    print("INTEGRATED PROCESS TEST: GRINDING -> FLOTATION -> COSTS")
-    print("="*80)
-
-    # Initialize stages
-    grinding = GrindingStage()
-    flotation = FlotationStage()
-
-    throughput_tpa = 100000
-
-    print(f"\n{'STEP 1: GRINDING':-^80}")
-    print(f"Feed: {throughput_tpa:,} tpa")
-
-    # Run grinding process
-    tonnage_input = [10000, 30000, 40000, 15000, 5000]
-    top_size_input = [600, 300, 150, 75, 37.5]
-    bottom_size_input = [300, 150, 75, 37.5, 18.75]
-    selection_input = [0.8, 0.6, 0.4, 0.2, 0.1]
-    break_intensity = 5
-
-    grinding_result = grinding.process(tonnage_input, top_size_input, bottom_size_input,
-                                       selection_input, break_intensity)
-
-    print(f"  Total feed: {grinding_result['total_feed']:,.0f} tonnes")
-    print(f"  Total product: {grinding_result['total_product']:,.0f} tonnes")
-    print(f"  P80 size: {grinding_result['p80_size']:.2f} microns")
-    print(f"  Mass balance OK: {grinding_result['mass_balance_ok']}")
-
-    # Grinding costs
-    grinding_capex = grinding.calculate_capex(throughput_tpa)
-    grinding_opex = grinding.calculate_opex(throughput_tpa)
-
-    print(f"\nGrinding Costs:")
-    print(f"  CAPEX: ${grinding_capex:,.0f}")
-    print(f"  OPEX: ${grinding_opex:,.0f}/year")
-
-    print(f"\n{'STEP 2: FLOTATION':-^80}")
-    print(f"Feed from grinding: {grinding_result['total_product']:,.0f} tonnes")
-
-    # Flotation costs (based on feed tonnage)
-    flotation_capex = flotation.calculate_capex(throughput_tpa)
-    flotation_opex = flotation.calculate_opex(throughput_tpa)
-
-    print(f"\nFlotation Costs (for processing {throughput_tpa:,} tpa):")
-    print(f"  CAPEX: ${flotation_capex:,.0f}")
-    print(f"  OPEX (power): ${flotation_opex['power']:,.0f}/year")
-    print(f"  OPEX (water): ${flotation_opex['water']:,.0f}/year")
-    print(f"  OPEX (total): ${flotation_opex['total']:,.0f}/year")
-
-    # Example: Run flotation recovery calculation
-    print(f"\n{'FLOTATION RECOVERY CALCULATION':-^80}")
-    print("(Using example parameters - would normally come from optimization)")
-
-    # Example parameters for flotation
-    fitting_params = {'b': 2, 'alpha': 0.10, 'coverage': 0.525,
-                     'bubble_f': 0.825, 'detach_f': 0.5, 'bulk_zone': 0.5}
-    flot_constants = {'specific_gravity': 4.2, 'grade': 0.28, 'permitivity': 8.854e-12,
-                     'dielectric': 80, 'pe': 4, 'cell_area': 200, 'bbl_ratio': 10,
-                     'feed_tonnage': throughput_tpa}
-    opt_vars = {'particle_size': grinding_result['p80_size'], 'contact_angle': 52.3,
-               'bubble_z_pot': -0.03, 'particle_z_pot': -50, 'sp_power': 1,
-               'sp_gas_rate': 2, 'air_fraction': 0.05, 'slurry_fraction': 0.15,
-               'num_cells': 1, 'ret_time': 23.67, 'cell_volume': 700,
-               'froth_height': 0.165, 'frother_conc': 50}
-    inputs_dict = {'frother_type': 4, 'water_or_particle': 'Particle'}
-
-    flotation_result = flotation.process(fitting_params, flot_constants, opt_vars, inputs_dict)
-
-    print(f"  Recovery: {flotation_result['recovery']*100:.2f}%")
-    print(f"  Feed tonnage: {flotation_result['feed_tonnage']:,.0f} tpa")
-    print(f"  Concentrate: {flotation_result['concentrate_tonnage']:,.0f} tpa")
-    print(f"  Tailings: {flotation_result['tails_tonnage']:,.0f} tpa")
-
-    print(f"\n{'DOWNSTREAM IMPLICATIONS':-^80}")
-    print(f"Leaching/SX/EW will process: {flotation_result['concentrate_tonnage']:,.0f} tpa")
-    print(f"  (NOT the full {throughput_tpa:,} tpa feed!)")
-    print(f"\nThis is {flotation_result['concentrate_tonnage']/throughput_tpa*100:.1f}% of the feed tonnage.")
-
-    print(f"\n{'STEP 3: LEACHING':-^80}")
-    print(f"Feed from flotation: {flotation_result['concentrate_tonnage']:,.0f} tpa (concentrate)")
-
-    # Initialize leaching stage with realistic sulfuric acid price
-    # Industrial H2SO4 costs $50-150/tonne (vs $400 for concentrated HNO3)
-    leaching = LeachingStage(acid_price_per_tonne=100)
-
-    # Calculate copper in concentrate (assuming 28% Cu grade)
-    concentrate_cu_grade = 0.28
-    copper_in_concentrate_tpa = flotation_result['concentrate_tonnage'] * concentrate_cu_grade
-
-    print(f"  Copper in concentrate: {copper_in_concentrate_tpa:,.0f} tpa Cu")
-
-    # Run leaching process
-    leaching_result = leaching.process(
-        concentrate_tpa=flotation_result['concentrate_tonnage'],
-        copper_in_concentrate_tpa=copper_in_concentrate_tpa
-    )
-
-    print(f"\n  Leaching recovery: {leaching_result['leach_recovery']*100:.2f}%")
-    print(f"  Copper leached: {leaching_result['copper_leached_tpa']:,.0f} tpa Cu")
-    print(f"  Copper leached: {leaching_result['copper_leached_kg']:,.0f} kg/year Cu")
-
-    # Leaching costs (depends on concentrate tonnage and copper leached)
-    leaching_capex = leaching.calculate_capex(flotation_result['concentrate_tonnage'])
-    leaching_opex = leaching.calculate_opex(leaching_result['copper_leached_kg'])
-
-    print(f"\nLeaching Costs:")
-    print(f"  CAPEX: ${leaching_capex:,.0f}")
-    print(f"  OPEX (acid): ${leaching_opex['acid_cost']:,.0f}/year")
-    print(f"    - Stoichiometric acid: {leaching_opex['acid_stoichiometric_tpa']:,.0f} tpa")
-    print(f"    - Acid recovery: {leaching_opex['acid_recovery_fraction']*100:.1f}%")
-    print(f"    - Net acid consumption: {leaching_opex['acid_net_consumption_tpa']:,.0f} tpa")
-    print(f"    - Acid price: ${leaching.acid_price}/tonne")
-
-    print(f"\n{'DOWNSTREAM IMPLICATIONS':-^80}")
-    print(f"SX/EW will process: {leaching_result['copper_leached_tpa']:,.0f} tpa Cu")
-    print(f"  This is {leaching_result['leach_recovery']*100:.1f}% of the copper in concentrate")
-    print(f"  Overall Cu recovery so far: {flotation_result['recovery']*leaching_result['leach_recovery']*100:.1f}%")
-
-    print(f"\n{'STEP 4: SOLVENT EXTRACTION':-^80}")
-    print(f"Feed from leaching: {leaching_result['copper_leached_tpa']:,.0f} tpa Cu")
-
-    # Initialize SX stage
-    sx = SolventExtractionStage(solvent_price_per_litre=5, solvent_losses_fraction=0.01)
-
-    # Run SX process (using parameters from equation_flow_official.py)
-    sx_result = sx.process(
-        copper_leached_kg=leaching_result['copper_leached_kg'],
-        K_ex=10,
-        RH=0.2,
-        O_A=1.2,
-        pH=1.1
-    )
-
-    print(f"\n  SX Parameters:")
-    print(f"    - K_ex: {sx_result['K_ex']}")
-    print(f"    - RH (extractant conc): {sx_result['RH']} M")
-    print(f"    - O/A ratio: {sx_result['O_A']}")
-    print(f"    - pH: {sx_result['pH']}")
-
-    print(f"\n  SX recovery: {sx_result['sx_recovery']*100:.2f}%")
-    print(f"  Copper extracted: {sx_result['copper_extracted_kg']:,.0f} kg/year")
-    print(f"  Copper in raffinate: {sx_result['copper_raffinate_kg']:,.0f} kg/year")
-
-    # SX costs (depends on copper throughput and solution volume)
-    sx_capex = sx.calculate_capex(leaching_result['copper_leached_tpa'])
-
-    # Estimate solution volume (rough estimate: 1 m3 per kg Cu per year)
-    solution_volume_m3 = leaching_result['copper_leached_kg'] * 0.001
-
-    sx_opex = sx.calculate_opex(sx_result['copper_extracted_kg'], solution_volume_m3)
-
-    print(f"\nSolvent Extraction Costs:")
-    print(f"  CAPEX: ${sx_capex:,.0f}")
-    print(f"  OPEX (solvent): ${sx_opex['solvent_cost']:,.0f}/year")
-    print(f"    - Organic volume: {sx_opex['organic_volume_litres']:,.0f} L")
-    print(f"    - Solvent losses: {sx_opex['solvent_losses_fraction']*100:.1f}%")
-    print(f"    - Annual makeup: {sx_opex['solvent_losses_litres']:,.0f} L")
-    print(f"    - Solvent price: ${sx.solvent_price}/L")
-
-    print(f"\n{'DOWNSTREAM IMPLICATIONS':-^80}")
-    print(f"EW will process: {sx_result['copper_extracted_kg']/1000:.0f} tpa Cu")
-    print(f"  This is {sx_result['sx_recovery']*100:.1f}% of the copper from leaching")
-    overall_recovery = flotation_result['recovery'] * leaching_result['leach_recovery'] * sx_result['sx_recovery']
-    print(f"  Overall Cu recovery so far: {overall_recovery*100:.1f}%")
-
-    print(f"\n{'STEP 5: ELECTROWINNING':-^80}")
-    print(f"Feed from SX: {sx_result['copper_extracted_kg']/1000:.0f} tpa Cu")
-
-    # Initialize EW stage (using 1990s cost basis, will be inflated)
-    ew = ElectrowinningStage(current_density=250, current_efficiency=0.95, cell_cost_per_m2=2000)
-
-    # Run EW process
-    ew_result = ew.process(
-        copper_extracted_kg=sx_result['copper_extracted_kg'],
-        ew_recovery=0.95
-    )
-
-    print(f"\n  EW Parameters:")
-    print(f"    - Current density: {ew.current_density} A/m2")
-    print(f"    - Current efficiency: {ew.current_efficiency*100:.1f}%")
-
-    print(f"\n  EW recovery: {ew_result['ew_recovery']*100:.2f}%")
-    print(f"  Copper plated: {ew_result['copper_plated_kg']:,.0f} kg/year ({ew_result['copper_plated_tpa']:,.0f} tpa)")
-    print(f"  Copper remaining: {ew_result['copper_remaining_kg']:,.0f} kg/year")
-
-    # EW costs (depends on copper production)
-    ew_capex = ew.calculate_capex(ew_result['copper_plated_tpa'])
-    ew_opex = ew.calculate_opex(ew_result['copper_plated_tpa'])
-
-    print(f"\nElectrowinning Costs:")
-    print(f"  CAPEX: ${ew_capex:,.0f}")
-    print(f"  OPEX (power): ${ew_opex['power_cost']:,.0f}/year")
-    print(f"    - Required current: {ew_opex['required_current']:,.0f} A")
-    print(f"    - Cell voltage: {ew_opex['cell_voltage']:.2f} V")
-    print(f"    - Power: {ew_opex['power_kw']:,.0f} kW")
-    print(f"    - Annual energy: {ew_opex['annual_energy_mwh']:,.0f} MWh")
-
-    print(f"\n{'FINAL PRODUCT':-^80}")
-    final_recovery = flotation_result['recovery'] * leaching_result['leach_recovery'] * sx_result['sx_recovery'] * ew_result['ew_recovery']
-    print(f"Final copper product: {ew_result['copper_plated_tpa']:,.0f} tpa Cu (cathode)")
-    print(f"Overall recovery: {final_recovery*100:.1f}%")
-    print(f"  From {throughput_tpa:,} tpa ore feed")
-
-    print(f"\n{'TOTAL COSTS (FULL PROCESS)':-^80}")
-    total_capex = grinding_capex + flotation_capex + leaching_capex + sx_capex + ew_capex
-    total_opex = grinding_opex + flotation_opex['total'] + leaching_opex['total'] + sx_opex['total'] + ew_opex['total']
-
-    print(f"  Total CAPEX: ${total_capex:,.0f}")
-    print(f"  Total OPEX: ${total_opex:,.0f}/year")
-    print(f"\n  CAPEX Breakdown:")
-    print(f"    - Grinding:       ${grinding_capex:,.0f} ({grinding_capex/total_capex*100:.1f}%)")
-    print(f"    - Flotation:      ${flotation_capex:,.0f} ({flotation_capex/total_capex*100:.1f}%)")
-    print(f"    - Leaching:       ${leaching_capex:,.0f} ({leaching_capex/total_capex*100:.1f}%)")
-    print(f"    - SX:             ${sx_capex:,.0f} ({sx_capex/total_capex*100:.1f}%)")
-    print(f"    - Electrowinning: ${ew_capex:,.0f} ({ew_capex/total_capex*100:.1f}%)")
-    print(f"\n  OPEX Breakdown:")
-    print(f"    - Grinding:       ${grinding_opex:,.0f}/year ({grinding_opex/total_opex*100:.1f}%)")
-    print(f"    - Flotation:      ${flotation_opex['total']:,.0f}/year ({flotation_opex['total']/total_opex*100:.1f}%)")
-    print(f"    - Leaching:       ${leaching_opex['total']:,.0f}/year ({leaching_opex['total']/total_opex*100:.1f}%)")
-    print(f"    - SX:             ${sx_opex['total']:,.0f}/year ({sx_opex['total']/total_opex*100:.1f}%)")
-    print(f"    - Electrowinning: ${ew_opex['total']:,.0f}/year ({ew_opex['total']/total_opex*100:.1f}%)")
-
-    print("="*80)
-
-
-if __name__ == "__main__":
-    test_grinding()
-    test_integrated_process()
