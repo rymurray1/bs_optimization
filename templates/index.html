@@ -395,27 +395,33 @@
             <div class="comparison-card">
                 <h3 class="section-title">⚙️ Optimized Operating Parameters</h3>
 
-                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">Grinding</h4>
+                <div style="text-align: center; margin: 20px 0;">
+                    <img src="{{ url_for('static', filename='fsd_optimization_model.jpg') }}"
+                         alt="FSD Optimization Model"
+                         style="max-width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+                </div>
+
+                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">A) Grinding</h4>
                 <table class="parameters-table">
                     <tbody id="grinding_params"></tbody>
                 </table>
 
-                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">Flotation</h4>
+                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">B) Flotation</h4>
                 <table class="parameters-table">
                     <tbody id="flotation_params"></tbody>
                 </table>
 
-                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">Leaching</h4>
+                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">C) Leaching</h4>
                 <table class="parameters-table">
                     <tbody id="leaching_params"></tbody>
                 </table>
 
-                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">Solvent Extraction</h4>
+                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">D) Solvent Extraction</h4>
                 <table class="parameters-table">
                     <tbody id="sx_params"></tbody>
                 </table>
 
-                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">Electrowinning</h4>
+                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">E) Electrowinning</h4>
                 <table class="parameters-table">
                     <tbody id="ew_params"></tbody>
                 </table>

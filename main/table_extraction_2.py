@@ -1,3 +1,0 @@
-import camelot
-
-print("test")
