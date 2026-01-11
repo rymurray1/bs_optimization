@@ -1,5 +1,6 @@
 # Internal development files and folders
 internal_dev/
+main/
 
 # Python
 __pycache__/
