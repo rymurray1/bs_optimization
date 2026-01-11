@@ -236,8 +236,8 @@ class OptimalTEA:
         self.fixed_ore_feed = ore_feed_tpa
         self.use_electrolyzer = use_electrolyzer
 
-        # Define optimization bounds for 24 parameters
-        # [Grinding (1), Flotation (9), Leaching (6), SX (4), EW (4)]S
+        # Define optimization bounds for 23 parameters
+        # [Grinding (1), Flotation (8), Leaching (6), SX (4), EW (4)]
         self.bounds = [
             # Grinding parameters
             (50, 150),       # product_size (microns) - feeds into flotation as particle_size
@@ -245,13 +245,13 @@ class OptimalTEA:
             # Flotation parameters (tightened to realistic industrial ranges)
             (0.8, 1.2),      # sp_power (kW/m³) - typical industrial range
             (0.8, 1.5),      # sp_gas_rate (cm/s) - reduced upper limit
-            (10, 50),    # frother_conc (g/l) - corrected to realistic dosage (20-80 ppm)
+            (10, 50),        # frother_conc (g/l) - corrected to realistic dosage (20-80 ppm)
             (15, 20),        # ret_time (min) - typical for copper rougher flotation
-            (1, 5),          # num_cells
             (0.10, 0.20),    # air_fraction - typical industrial range 10-20%
             (0.15, 0.30),    # slurry_fraction - typical pulp density
             (40, 70),        # contact_angle (degrees) - typical for copper minerals with collector
             (100, 250),      # cell_volume (m³) - industrial flotation cell sizes
+            # NOTE: num_cells is now CALCULATED from throughput / cell_volume
 
             # Leaching parameters
             (190, 200),      # T (°C)
@@ -262,10 +262,10 @@ class OptimalTEA:
             (8, 16),         # leach_time (hours)
 
             # Solvent Extraction parameters
-            (20, 120),       # K_ex (equilibrium constant)
-            (0.18, 0.3),     # RH - -log(pH) (extractant concentration, M)
-            (0.2, .75),     # O_A (organic/aqueous ratio)
-            (1.0, 2.0),      # pH
+            (20, 60),        # K_ex (equilibrium constant) - reduced upper bound
+            (0.18, 0.22),    # RH (extractant concentration, M) - reduced upper bound
+            (0.2, 0.45),     # O_A (organic/aqueous ratio) - reduced upper bound
+            (1.3, 2.0),      # pH - increased lower bound (higher pH reduces recovery)
 
             # Electrowinning parameters
             (200, 300),      # current_density (A/m²)
@@ -278,19 +278,20 @@ class OptimalTEA:
         self.grinding = None  # Will be initialized with optimized product_size
         self.flotation = FlotationStage()
 
-        # Initialize leaching and electrolyzer based on mode
+        # Initialize leaching, solvent extraction, and electrolyzer based on mode
         if self.use_electrolyzer:
             self.electrolyzer = ElectrolyzerStage()
             # With electrolyzer: acid cost is $0 (we produce it ourselves)
             # The cost is captured in electrolyzer CAPEX/OPEX
             self.leaching = LeachingStage(acid_price_per_tonne=0, acid_recovery_fraction=0)
-            print(f"[DEBUG] Initialized WITH electrolyzer: acid_price=$0/tonne")
+            self.sx = SolventExtractionStage(acid_price=0, acid_loss_fraction=0.01)
+            print(f"[DEBUG] Initialized WITH electrolyzer: acid_price=$0/tonne for both leaching and SX")
         else:
             # Without electrolyzer: buy acid at market price
             self.leaching = LeachingStage(acid_price_per_tonne=129, acid_recovery_fraction=0)
-            print(f"[DEBUG] Initialized WITHOUT electrolyzer: acid_price=$100/tonne")
+            self.sx = SolventExtractionStage(acid_price=129, acid_loss_fraction=0.01)
+            print(f"[DEBUG] Initialized WITHOUT electrolyzer: acid_price=$129/tonne for both leaching and SX")
 
-        self.sx = SolventExtractionStage()
         self.ew = ElectrowinningStage()
 
     def unpack_parameters(self, params):
@@ -304,35 +305,35 @@ class OptimalTEA:
             'sp_gas_rate': params[2],
             'frother_conc': params[3],
             'ret_time': params[4],
-            'num_cells': int(params[5]),
-            'air_fraction': params[6],
-            'slurry_fraction': params[7],
+            'air_fraction': params[5],
+            'slurry_fraction': params[6],
             'particle_size': params[0],  # Use grinding product_size output!
-            'contact_angle': params[8],
-            'cell_volume': params[9]
+            'contact_angle': params[7],
+            'cell_volume': params[8]
+            # NOTE: num_cells will be calculated in simulate_process based on throughput
         }
 
         leaching_params = {
-            'T': params[10],
-            'P_O2': params[11],
-            'Ea': params[12],
-            'n': params[13],
-            'H_plus': params[14],
-            'leach_time': params[15]
+            'T': params[9],
+            'P_O2': params[10],
+            'Ea': params[11],
+            'n': params[12],
+            'H_plus': params[13],
+            'leach_time': params[14]
         }
 
         sx_params = {
-            'K_ex': params[16],
-            'RH': params[17],
-            'O_A': params[18],
-            'pH': params[19]
+            'K_ex': params[15],
+            'RH': params[16],
+            'O_A': params[17],
+            'pH': params[18]
         }
 
         ew_params = {
-            'current_density': params[20],
-            'current_efficiency': params[21],
-            'cell_potential': params[22],
-            'ew_recovery': params[23]
+            'current_density': params[19],
+            'current_efficiency': params[20],
+            'cell_potential': params[21],
+            'ew_recovery': params[22]
         }
 
         return grinding_params, flotation_params, leaching_params, sx_params, ew_params
@@ -397,6 +398,30 @@ class OptimalTEA:
         # Stage 2: Flotation
         cu_in_feed_kg = ore_feed_tpa * 1000 * self.feed_grade
 
+        # Calculate required number of cells based on throughput, retention time, and cell volume
+        # Logic:
+        #   - total_rate (m³/s) = volumetric flow rate through flotation system
+        #   - retention_time (s) = how long material stays in the system
+        #   - total_volume_in_system = flow_rate × retention_time × (1 + froth_excess)
+        #   - num_cells = total_volume_in_system / cell_volume
+        # This ensures we have enough cell capacity to handle the continuous throughput
+        # while maintaining the required retention time
+        from tea import flotation_rates, froth_factor_excess
+        import math
+
+        ret_time_sec = flotation_params['ret_time'] * 60  # Convert minutes to seconds
+        rates = flotation_rates(ore_feed_tpa)
+
+        # Total volume that must be held in the flotation system at any given time
+        # This accounts for the continuous flow × residence time × froth excess factor
+        total_volume_in_system = rates['total_rate'] * ret_time_sec * (1 + froth_factor_excess)
+
+        # Number of cells = total volume needed / volume per cell (round up)
+        num_cells_required = math.ceil(total_volume_in_system / flotation_params['cell_volume'])
+
+        # Add calculated num_cells to flotation_params (minimum 1 cell)
+        flotation_params['num_cells'] = max(1, num_cells_required)
+
         # Prepare flotation function inputs (from flotation_recovery.py)
         fitting_params = {'b': 2, 'alpha': 0.05, 'coverage': 0.525,
                          'bubble_f': 0.825, 'detach_f': 0.25, 'bulk_zone': 0.7}
@@ -432,14 +457,16 @@ class OptimalTEA:
         flotation_capex = self.flotation.calculate_capex(
             ore_feed_tpa,
             ret_time=flotation_params['ret_time'],
-            num_cells=flotation_params['num_cells']
+            num_cells=flotation_params['num_cells'],
+            cell_volume=flotation_params['cell_volume']
         )
         flotation_opex_dict = self.flotation.calculate_opex(
             ore_feed_tpa,
             sp_power=flotation_params['sp_power'],
             ret_time=flotation_params['ret_time'],
             num_cells=flotation_params['num_cells'],
-            frother_conc=flotation_params['frother_conc']
+            frother_conc=flotation_params['frother_conc'],
+            cell_volume=flotation_params['cell_volume']
         )
         flotation_opex = flotation_opex_dict['total']
 
@@ -469,25 +496,6 @@ class OptimalTEA:
         leaching_opex_dict = self.leaching.calculate_opex(cu_leached_kg)
         leaching_opex = leaching_opex_dict['acid_cost']
 
-        # Electrolyzer costs (if enabled)
-        if self.use_electrolyzer:
-            # Electrolyzer only needs to produce NET acid consumption (makeup acid after recycling)
-            # The rest is recycled within the process
-            acid_required_tpa = leaching_opex_dict['acid_net_consumption_tpa']
-
-            electrolyzer_capex = self.electrolyzer.calculate_capex(acid_required_tpa)
-            electrolyzer_opex_dict = self.electrolyzer.calculate_opex(acid_required_tpa)
-            electrolyzer_opex = electrolyzer_opex_dict['total']
-        else:
-            electrolyzer_capex = 0
-            electrolyzer_opex = 0
-            electrolyzer_opex_dict = {}
-
-        # Debug: print first evaluation costs
-        if not hasattr(self, '_first_eval_done'):
-            self._first_eval_done = True
-            print(f"[DEBUG] First evaluation - Leaching OPEX: ${leaching_opex:,.0f}, Electrolyzer OPEX: ${electrolyzer_opex:,.0f}")
-
         # Stage 4: Solvent Extraction
         cu_in_leach_solution = cu_leached_kg  # mol of Cu
         cu_out_raffinate = solvent_extraction(
@@ -506,7 +514,40 @@ class OptimalTEA:
         sx_capex = self.sx.calculate_capex(cu_leached_tpa)
         solution_volume_m3 = cu_leached_kg * 0.001  # Estimate solution volume
         sx_opex_dict = self.sx.calculate_opex(cu_extracted_kg, solution_volume_m3)
-        sx_opex = sx_opex_dict['solvent_cost']
+        sx_opex = sx_opex_dict['acid_cost']
+
+        # Electrolyzer costs (if enabled) - calculate AFTER both leaching and SX costs
+        if self.use_electrolyzer:
+            # Electrolyzer needs to produce acid for BOTH leaching and solvent extraction
+            # Calculate total acid requirement from both stages
+            leaching_acid_tpa = leaching_opex_dict['acid_net_consumption_tpa']
+
+            # Calculate SX acid requirement (convert from litres to tonnes)
+            # acid_losses_litres from SX, convert to kg then tonnes
+            # Assuming sulfuric acid density ~1.84 kg/L
+            sx_acid_litres = sx_opex_dict['acid_losses_litres']
+            sx_acid_tpa = (sx_acid_litres * 1.84) / 1000  # L * kg/L / 1000 = tonnes
+
+            # Total acid requirement for electrolyzer
+            acid_required_tpa = leaching_acid_tpa + sx_acid_tpa
+
+            electrolyzer_capex = self.electrolyzer.calculate_capex(acid_required_tpa)
+            electrolyzer_opex_dict = self.electrolyzer.calculate_opex(acid_required_tpa)
+            electrolyzer_opex = electrolyzer_opex_dict['total']
+
+            # Store breakdown for debugging
+            electrolyzer_opex_dict['leaching_acid_tpa'] = leaching_acid_tpa
+            electrolyzer_opex_dict['sx_acid_tpa'] = sx_acid_tpa
+            electrolyzer_opex_dict['total_acid_tpa'] = acid_required_tpa
+        else:
+            electrolyzer_capex = 0
+            electrolyzer_opex = 0
+            electrolyzer_opex_dict = {}
+
+        # Debug: print first evaluation costs
+        if not hasattr(self, '_first_eval_done'):
+            self._first_eval_done = True
+            print(f"[DEBUG] First evaluation - Leaching OPEX: ${leaching_opex:,.0f}, SX OPEX: ${sx_opex:,.0f}, Electrolyzer OPEX: ${electrolyzer_opex:,.0f}")
 
         # Stage 5: Electrowinning
         cu_plated_kg = cu_extracted_kg * ew_params['ew_recovery']
@@ -557,6 +598,13 @@ class OptimalTEA:
                 'sx': {'capex': sx_capex, 'opex': sx_opex},
                 'ew': {'capex': ew_capex, 'opex': ew_opex},
                 'electrolyzer': {'capex': electrolyzer_capex, 'opex': electrolyzer_opex, 'enabled': self.use_electrolyzer}
+            },
+            'calculated_parameters': {
+                'grinding': grinding_params,
+                'flotation': flotation_params,
+                'leaching': leaching_params,
+                'sx': sx_params,
+                'ew': ew_params
             }
         }
 
@@ -667,10 +715,14 @@ class OptimalTEA:
         """
         Print detailed analysis of optimization results.
         """
-        optimal_params = optimization_output['optimal_params']
         result = optimization_output['result']
 
-        grinding_params, flotation_params, leaching_params, sx_params, ew_params = self.unpack_parameters(optimal_params)
+        # Use calculated parameters (includes num_cells) instead of raw unpacked parameters
+        grinding_params = result['calculated_parameters']['grinding']
+        flotation_params = result['calculated_parameters']['flotation']
+        leaching_params = result['calculated_parameters']['leaching']
+        sx_params = result['calculated_parameters']['sx']
+        ew_params = result['calculated_parameters']['ew']
 
         print("\n" + "="*80)
         print("OPTIMIZATION RESULTS")
@@ -757,8 +809,8 @@ class OptimalTEA:
         print("\n" + "="*80)
 
 
-def compare_with_and_without_electrolyzer(target_cu_tons=10000, feed_grade=0.0058,
-                                          concentrate_grade=0.28, maxiter=50):
+def compare_with_and_without_electrolyzer(target_cu_tons=10000, feed_grade=0.006,
+                                          concentrate_grade=0.3, maxiter=50):
     """
     Compare NPV optimization with and without electrolyzer for acid production.
 
@@ -888,8 +940,8 @@ if __name__ == "__main__":
 
 
     comparison = compare_with_and_without_electrolyzer(
-        target_cu_tons=10000,
-        feed_grade=.0058,
+        target_cu_tons=100000,
+        feed_grade=.006,
         concentrate_grade=0.28,
         maxiter=30
     )

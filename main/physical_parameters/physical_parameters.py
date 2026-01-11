@@ -26,19 +26,14 @@ def calc_energy_barrier(particle_diam, dielectric, permitivity, contact_angle, b
     drag_beta_value = 1.0
 
 
-
-def flot_rec(sg, sp_power, sp_gas_rate, air_fraction, slurry_fraction,
-             particle_z_pot, bubble_z_pot, num_cells, ret_time, cell_volume,
-             froth_height, frother, frother_conc, particle_diam, grade,
-             contact_angle, permitivity, dielectric, pe, water_or_particle,
-             cell_area, bbl_ratio):
+def flot_rec(physical_variables, operating_conditions, cell_design, model_parameters, physical_constants, control_parameters):
     """
     Calculate flotation recovery.
 
     Args:
-        sg: Specific gravity
-        sp_power: Specific power (W/m^3 before conversion)
-        sp_gas_rate: Specific gas rate (cm/s before conversion)
+        specific_gravity: Specific gravity
+        specific_power_input: Specific power (W/m^3 before conversion)
+        specific_gas_rate: Specific gas rate (cm/s before conversion)
         air_fraction: Air fraction
         slurry_fraction: Slurry fraction
         particle_z_pot: Particle zeta potential
@@ -63,24 +58,41 @@ def flot_rec(sg, sp_power, sp_gas_rate, air_fraction, slurry_fraction,
         float: Flotation recovery value
     """
     global energy_barrier_value, drag_beta_value
-    #fit parameters
-    b = 2
-    alpha = 0.10
-    coverage = 0.525 # Froth parameters
-    bubble_f = 0.825 # Froth parameters
-    detach_f = 0.5  # Adjustable parameter for fitting - varies depending on ore; hydrodynamic parameters; optimized using ML
-    bulk_zone = 0.5 # Can be changed, varies depending on ore and hydrodynamic parameters    
+    
+    #physical variables
+    specific_gravity, particle_diam, particle_z_pot, bubble_z_pot, contact_angle, grade = physical_variables
+    
+    #operating conditions
+    specific_power_input, specific_gas_velocity, air_fraction, slurry_fraction, frother_conc, froth_type = operating_conditions
+    
+    #cell design
+    num_cells, ret_time, cell_volume, froth_height, cell_area, bbl_ratio = cell_design
+    
+    #model parameters
+    b, alpha, coverage, bubble_f, detach_f, bulk_zone, pe = model_parameters
+    
+    #physical constants
+    permitivity, dielectric = physical_constants
+    
+    #control parameters
+    water_or_particle = control_parameters
 
+    b = b
+    alpha = alpha
+    coverage = coverage # Froth parameters
+    bubble_f = bubble_f # Froth parameters
+    detach_f = detach_f  # Adjustable parameter for fitting - varies depending on ore; hydrodynamic parameters; optimized using ML
+    bulk_zone = bulk_zone # Can be changed, varies depending on ore and hydrodynamic parameters    
     # Convert particle diameter from microns to meters
     particle_diam = particle_diam * 0.000001
 
     # Constants
     h_c_factor = 150
     impeller_zone = 15
-    particle_dens = sg * 1000  # x1000 for kg/m^3
+    particle_dens = specific_gravity * 1000  # x1000 for kg/m^3
     vol_imp_zone = 0.1  # Set impeller zone 1/10
-    sp_power = sp_power * 1000  # x1000 for w/m^3
-    sp_gas_rate = sp_gas_rate / 100  # /100 for m/s
+    specific_power_input = specific_power_input* 1000  # x1000 for w/m^3
+    specific_gas_rate = specific_gas_velocity / 100  # /100 for m/s
 
     # Frother constants
     gamma_mibc = 0.000005  # mol/m^2
@@ -93,16 +105,16 @@ def flot_rec(sg, sp_power, sp_gas_rate, air_fraction, slurry_fraction,
     k_pentanol = 55  # M^-1
 
     # Surface tension calculations
-    if frother == 2:  # MIBC
+    if froth_type== 2:  # MIBC
         frother_conc = frother_conc / 102170  # Convert ppm to mol/L
         surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_mibc * math.log(k_mibc * frother_conc + 1)
-    elif frother == 3:  # PPG 400
+    elif froth_type== 3:  # PPG 400
         frother_conc = frother_conc / 134170  # Convert ppm to mol/L
         surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_ppg400 * math.log(k_ppg400 * frother_conc + 1)
-    elif frother == 4:  # Octanol
+    elif froth_type== 4:  # Octanol
         frother_conc = frother_conc / 130230  # Convert ppm to mol/L
         surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_octanol * math.log(k_octanol * frother_conc + 1)
-    elif frother == 5:  # Pentanol
+    elif froth_type== 5:  # Pentanol
         frother_conc = frother_conc / 88150  # Convert ppm to mol/L
         surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_pentanol * math.log(k_pentanol * frother_conc + 1)
     else:
@@ -110,7 +122,7 @@ def flot_rec(sg, sp_power, sp_gas_rate, air_fraction, slurry_fraction,
 
     # Energy Dissipation
     total_dens = air_fraction * AIR_DENSITY + (1 - air_fraction) * slurry_fraction * particle_dens + (1 - slurry_fraction) * WATER_DENSITY
-    e_mean = sp_power / total_dens
+    e_mean = specific_power_input/ total_dens
     e_bulk = bulk_zone * e_mean
     e_impeller = impeller_zone * e_mean
 
@@ -173,21 +185,18 @@ def flot_rec(sg, sp_power, sp_gas_rate, air_fraction, slurry_fraction,
     pr = math.exp(-eiw / eka) if eka != 0 else 0
     pf_transfer = 1  # p_i * (1 - pr)
 
-    # Froth Recovery - fitting parameter, can be optimized
-    
     top_bubble_diam = bubble_diam * (1 / bbl_ratio)
     coverage_factor = 2 * (bubble_diam / particle_diam) ** 2
-    buoyant_diam = bubble_diam * ((1 - 0.001275) / ((sg - 1) * coverage_factor)) ** (1 / 3)
+    buoyant_diam = bubble_diam * ((1 - 0.001275) / ((specific_gravity - 1) * coverage_factor)) ** (1 / 3)
     pfr = math.exp(b * particle_diam / buoyant_diam)
     rmax = bubble_diam / top_bubble_diam
-    froth_ret_time = froth_height / sp_gas_rate * pfr
+    froth_ret_time = froth_height / specific_gas_rate * pfr
     
-
     r_attachment = rmax * math.exp(-alpha * froth_ret_time)
 
-    qair = sp_gas_rate * cell_area
-    qliq = cell_volume / (ret_time / num_cells * 60)
-    r_water_max = (qair / qliq) / ((1 / 0.2) - 1)
+    air_flow_rate = specific_gas_rate * cell_area
+    water_flow_rate = cell_volume / (ret_time / num_cells * 60)
+    r_water_max = (air_flow_rate / water_flow_rate) / ((1 / 0.2) - 1)
 
     if r_water_max > 1:
         r_water_max = 0.1
@@ -196,7 +205,7 @@ def flot_rec(sg, sp_power, sp_gas_rate, air_fraction, slurry_fraction,
 
     froth_recovery_factor = r_entrainment + r_attachment
 
-    # Cap froth recovery factor at 1.0 (cannot exceed 100%)
+
     if froth_recovery_factor > 1.0:
         froth_recovery_factor = 1.0
 
@@ -218,220 +227,253 @@ def flot_rec(sg, sp_power, sp_gas_rate, air_fraction, slurry_fraction,
     else:
         return 0.0
 
-
-def col_flot_rec(sg, sp_power, sp_gas_rate, air_fraction, slurry_fraction,
-                 particle_z_pot, bubble_z_pot, num_cells, ret_time, cell_volume,
-                 froth_height, frother, frother_conc, particle_diam, grade,
-                 contact_angle, permitivity, dielectric, pe, water_or_particle,
-                 cell_area, bbl_ratio):
-    """
-    Calculate column flotation recovery.
-    Similar to flot_rec but with slightly different parameters for column flotation.
-    """
-    global energy_barrier_value, drag_beta_value
-
-    # Convert particle diameter from microns to meters
-    particle_diam = particle_diam * 0.000001
-
-    # Constants
-    h_c_factor = 150
-    detach_f = .55
-    bulk_zone = 0.5
-    impeller_zone = 15
-    particle_dens = sg * 1000  # x1000 for kg/m^3
-    vol_imp_zone = 0.1  # Set impeller zone 1/10
-    sp_power = sp_power * 1000  # x1000 for w/m^3
-    sp_gas_rate = sp_gas_rate / 100  # /100 for m/s
-
-    # Frother constants
-    gamma_mibc = 0.000005  # mol/m^2
-    gamma_ppg400 = 0.000001  # mol/m^2
-    gamma_octanol = 0.000008  # mol/m^2
-    gamma_pentanol = 0.000006  # mol/m^2
-    k_mibc = 230  # M^-1
-    k_ppg400 = 1700000  # M^-1
-    k_octanol = 2200  # M^-1
-    k_pentanol = 55  # M^-1
-
-    # Froth parameters
-    coverage = 0.3  # Different from flot_rec
-    bubble_f = 0.5
-
-    # Surface tension calculations
-    if frother == 2:  # MIBC
-        frother_conc = frother_conc / 102170
-        surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_mibc * math.log(k_mibc * frother_conc + 1)
-    elif frother == 3:  # PPG 400
-        frother_conc = frother_conc / 134170
-        surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_ppg400 * math.log(k_ppg400 * frother_conc + 1)
-    elif frother == 4:  # Octanol
-        frother_conc = frother_conc / 130230
-        surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_octanol * math.log(k_octanol * frother_conc + 1)
-    elif frother == 5:  # Pentanol
-        frother_conc = frother_conc / 88150
-        surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_pentanol * math.log(k_pentanol * frother_conc + 1)
-    else:
-        surface_tension = 0.07243
-
-    # Energy Dissipation
-    total_dens = air_fraction * AIR_DENSITY + (1 - air_fraction) * slurry_fraction * particle_dens + (1 - slurry_fraction) * WATER_DENSITY
-    e_mean = sp_power / total_dens
-    e_bulk = bulk_zone * e_mean
-    e_impeller = impeller_zone * e_mean
-
-    bubble_diam = bubble_f * (2.11 * surface_tension / (WATER_DENSITY * e_impeller ** 0.66)) ** 0.6
-
-    num_attached = coverage * 4 * (bubble_diam / particle_diam) ** 2
-
-    # Cell Calculations - note: collision diameter calculation is different from flot_rec
-    collision_diam = particle_diam + bubble_diam  # Different from flot_rec (no 0.5 factor)
-    vol_particle = (4 / 3) * PI * (particle_diam / 2) ** 3
-    vol_bubble = (4 / 3) * PI * (bubble_diam / 2) ** 3
-    vol_bp = vol_bubble + vol_particle
-    kin_visc = WATER_VISCOSITY / WATER_DENSITY
-    mass_particle = particle_dens * vol_particle
-    mass_bubble = AIR_DENSITY * vol_bubble
-    mass_bp = mass_bubble + mass_particle
-    mass_total = cell_volume * total_dens
-
-    # Velocities by Dissipation
-    u1_bulk = (0.4 * (e_bulk ** (4 / 9)) * (particle_diam ** (7 / 9)) *
-                   (kin_visc ** (-1 / 3)) * (particle_dens / WATER_DENSITY - 1) ** (2 / 3)) ** 2
-    u2_bulk = 2 * (e_bulk * bubble_diam) ** (2 / 3)
-    u1_mean = (0.4 * (e_mean ** (4 / 9)) * (particle_diam ** (7 / 9)) *
-                   (kin_visc ** (-1 / 3)) * (particle_dens / WATER_DENSITY - 1) ** (2 / 3)) ** 2
-    u2_mean = 2 * (e_mean * bubble_diam) ** (2 / 3)
-
-    beta = (2 ** (3 / 2)) * (PI ** 0.5) * (collision_diam ** 2) * math.sqrt(u1_bulk + u2_bulk)
-
-    # Calc # Density of Bubbles
-    n_bubble = air_fraction / vol_bubble
-    n_particle = (1 - air_fraction) * slurry_fraction / vol_particle
-    z_bubb_particle = beta * n_bubble * n_particle
-
-    work_adhesion = surface_tension * PI * (particle_diam / 2) ** 2 * (1 - math.cos(contact_angle * (PI / 180))) ** 2
-
-    # Energy Barrier
-    calc_energy_barrier(particle_diam, dielectric, permitivity, contact_angle, bubble_z_pot, particle_z_pot)
-
-    if energy_barrier_value <= 0:
-        energy_barrier_value = 0
-
-    # Kinetic Energy of Attachment
-    kinetic_e_attach = 0.5 * mass_particle * u1_bulk / (drag_beta_value ** 2)
-    kinetic_e_detach = 0.5 * mass_particle * (detach_f * (particle_diam + bubble_diam) * math.sqrt(e_impeller / kin_visc)) ** 2
-
-    # Probabilities
-    p_att = math.exp(-energy_barrier_value / kinetic_e_attach) if kinetic_e_attach != 0 else 0
-    p_det = math.exp(-(work_adhesion + energy_barrier_value) / kinetic_e_detach) if kinetic_e_detach != 0 else 0
-    re = math.sqrt(u2_bulk) * bubble_diam / kin_visc
-
-    p_col = math.tanh(math.sqrt(3 / 2 * (1 + (3 / 16 * re) / (1 + 0.249 * re ** 0.56))) * (particle_diam / bubble_diam)) ** 2
-
-    if p_col >= 1:
-        p_col = 1
-
-    eiw = GRAVITY / (4 * PI) * (WATER_VISCOSITY ** 3 / e_bulk) ** 0.25
-    eka = (mass_bubble * u2_bulk - 2 * (bubble_diam / particle_diam) ** 2 * mass_particle * u1_bulk) ** 2 / (100 * (mass_bubble + 2 * (bubble_diam / particle_diam) ** 2 * mass_particle))
-
-    p_i = 13 * math.sqrt((9 * WATER_VISCOSITY ** 2) / (bubble_diam * surface_tension * total_dens))
-    pr = math.exp(-eiw / eka) if eka != 0 else 0
-    pf_transfer = 1
-
-    # Froth Recovery
-    b = 2.2  # Different from flot_rec
-    top_bubble_diam = bubble_diam * bbl_ratio  # Different from flot_rec (no 1/)
-    coverage_factor = 2 * (bubble_diam / particle_diam) ** 2
-    buoyant_diam = bubble_diam * ((1 - 0.001275) / ((sg - 1) * coverage_factor)) ** (1 / 3)
-    pfr = math.exp(b * particle_diam / buoyant_diam)
-    rmax = bubble_diam / top_bubble_diam
-    froth_ret_time = froth_height / sp_gas_rate * pfr
-    alpha = 0.05
-
-    r_attachment = rmax * math.exp(-alpha * froth_ret_time)
-
-    qair = sp_gas_rate * cell_area
-    qliq = cell_volume / (ret_time / num_cells * 60)
-    r_water_max = (qair / qliq) / ((1 / 0.2) - 1)
-
-    if r_water_max > 1:
-        r_water_max = 0.15  # Different from flot_rec
-
-    r_entrainment = r_water_max * math.exp(-0.0325 * (particle_dens - WATER_DENSITY) / 1000 - 0.063 * particle_diam * 1000000)
-
-    froth_recovery_factor = r_entrainment + r_attachment
-
-    # Cap froth recovery factor at 1.0 (cannot exceed 100%)
-    if froth_recovery_factor > 1.0:
-        froth_recovery_factor = 1.0
-
-    # Rate Constant
-    rate_const = beta * n_bubble * p_att * p_col * (1 - p_det) * 60
-
-    # Dispersion Model (uses Peclet number for axial dispersion)
-    Aa = (1 + 4 * rate_const * ret_time / (num_cells * pe)) ** 0.5
-
-    # Collection zone recovery using dispersion model (accounts for back-mixing)
-    recovery_ci = 1 - 4 * Aa * math.exp(pe / 2) / ((1 + Aa) ** 2 * math.exp(Aa * pe / 2) - (1 - Aa) ** 2 * math.exp(-Aa * pe / 2))
-
-    recovery_i = recovery_ci * froth_recovery_factor / (recovery_ci * froth_recovery_factor + 1 - recovery_ci)
-
-    if water_or_particle == "Water":
-        return r_water_max
-    elif water_or_particle == "Particle":
-        return 1 - (1 - recovery_i) ** num_cells
-    else:
-        return 0.0
+# physical_variables = specific_gravity, particle_diam, particle_z_pot, bubble_z_pot, contact_angle, grade
+# operating_conditions = specific_power_input, specific_gas_velocity, air_fraction, slurry_fraction, frother_conc, froth_type
+# cell_design = num_cells, ret_time, cell_volume, froth_height, cell_area, bbl_ratio 
+# model_parameters = b, alpha, coverage, bubble_f, detach_f, bulk_zone, pe
+# physical_constants = permitivity, dielectric
+# control_parameters = water_or_particle
 
 
-def cyclone_rec(size, cut_size, alpha, water_rec):
-    """
-    Lynch-Rao Hydrocyclone model, with entrainment due to water recovery.
+# def col_flot_rec(specific_gravity, specific_power_input, specific_gas_rate, air_fraction, slurry_fraction,
+#                  particle_z_pot, bubble_z_pot, num_cells, ret_time, cell_volume,
+#                  froth_height, frother, frother_conc, particle_diam, grade,
+#                  contact_angle, permitivity, dielectric, pe, water_or_particle,
+#                  cell_area, bbl_ratio):
+#     """
+#     Calculate column flotation recovery.
+#     Similar to flot_rec but with slightly different parameters for column flotation.
+#     """
+#     global energy_barrier_value, drag_beta_value
 
-    Args:
-        size: Particle size
-        cut_size: Cut size (d50)
-        alpha: Sharpness parameter
-        water_rec: Water recovery
+#     # Convert particle diameter from microns to meters
+#     particle_diam = particle_diam * 0.000001
 
-    Returns:
-        float: Cyclone recovery
-    """
-    x = size / cut_size
-    y = (math.exp(alpha * x) - 1) / (math.exp(alpha * x) + math.exp(alpha) - 2)
-    cyclone_rec = y * (1 - water_rec) + water_rec
+#     # Constants
+#     h_c_factor = 150
+#     detach_f = .55
+#     bulk_zone = 0.5
+#     impeller_zone = 15
+#     particle_dens = specific_gravity * 1000  # x1000 for kg/m^3
+#     vol_imp_zone = 0.1  # Set impeller zone 1/10
+#     specific_power_input = specific_power_input* 1000  # x1000 for w/m^3
+#     specific_gas_rate = specific_gas_rate / 100  # /100 for m/s
 
-    return cyclone_rec
+#     # Frother constants
+#     gamma_mibc = 0.000005  # mol/m^2
+#     gamma_ppg400 = 0.000001  # mol/m^2
+#     gamma_octanol = 0.000008  # mol/m^2
+#     gamma_pentanol = 0.000006  # mol/m^2
+#     k_mibc = 230  # M^-1
+#     k_ppg400 = 1700000  # M^-1
+#     k_octanol = 2200  # M^-1
+#     k_pentanol = 55  # M^-1
+
+#     # Froth parameters
+#     coverage = 0.3  # Different from flot_rec
+#     bubble_f = 0.5
+
+#     # Surface tension calculations
+#     if froth_type== 2:  # MIBC
+#         frother_conc = frother_conc / 102170
+#         surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_mibc * math.log(k_mibc * frother_conc + 1)
+#     elif froth_type== 3:  # PPG 400
+#         frother_conc = frother_conc / 134170
+#         surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_ppg400 * math.log(k_ppg400 * frother_conc + 1)
+#     elif froth_type== 4:  # Octanol
+#         frother_conc = frother_conc / 130230
+#         surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_octanol * math.log(k_octanol * frother_conc + 1)
+#     elif froth_type== 5:  # Pentanol
+#         frother_conc = frother_conc / 88150
+#         surface_tension = 0.07243 - 8.314 * (273.15 + 23) * gamma_pentanol * math.log(k_pentanol * frother_conc + 1)
+#     else:
+#         surface_tension = 0.07243
+
+#     # Energy Dissipation
+#     total_dens = air_fraction * AIR_DENSITY + (1 - air_fraction) * slurry_fraction * particle_dens + (1 - slurry_fraction) * WATER_DENSITY
+#     e_mean = specific_power_input/ total_dens
+#     e_bulk = bulk_zone * e_mean
+#     e_impeller = impeller_zone * e_mean
+
+#     bubble_diam = bubble_f * (2.11 * surface_tension / (WATER_DENSITY * e_impeller ** 0.66)) ** 0.6
+
+#     num_attached = coverage * 4 * (bubble_diam / particle_diam) ** 2
+
+#     # Cell Calculations - note: collision diameter calculation is different from flot_rec
+#     collision_diam = particle_diam + bubble_diam  # Different from flot_rec (no 0.5 factor)
+#     vol_particle = (4 / 3) * PI * (particle_diam / 2) ** 3
+#     vol_bubble = (4 / 3) * PI * (bubble_diam / 2) ** 3
+#     vol_bp = vol_bubble + vol_particle
+#     kin_visc = WATER_VISCOSITY / WATER_DENSITY
+#     mass_particle = particle_dens * vol_particle
+#     mass_bubble = AIR_DENSITY * vol_bubble
+#     mass_bp = mass_bubble + mass_particle
+#     mass_total = cell_volume * total_dens
+
+#     # Velocities by Dissipation
+#     u1_bulk = (0.4 * (e_bulk ** (4 / 9)) * (particle_diam ** (7 / 9)) *
+#                    (kin_visc ** (-1 / 3)) * (particle_dens / WATER_DENSITY - 1) ** (2 / 3)) ** 2
+#     u2_bulk = 2 * (e_bulk * bubble_diam) ** (2 / 3)
+#     u1_mean = (0.4 * (e_mean ** (4 / 9)) * (particle_diam ** (7 / 9)) *
+#                    (kin_visc ** (-1 / 3)) * (particle_dens / WATER_DENSITY - 1) ** (2 / 3)) ** 2
+#     u2_mean = 2 * (e_mean * bubble_diam) ** (2 / 3)
+
+#     beta = (2 ** (3 / 2)) * (PI ** 0.5) * (collision_diam ** 2) * math.sqrt(u1_bulk + u2_bulk)
+
+#     # Calc # Density of Bubbles
+#     n_bubble = air_fraction / vol_bubble
+#     n_particle = (1 - air_fraction) * slurry_fraction / vol_particle
+#     z_bubb_particle = beta * n_bubble * n_particle
+
+#     work_adhesion = surface_tension * PI * (particle_diam / 2) ** 2 * (1 - math.cos(contact_angle * (PI / 180))) ** 2
+
+#     # Energy Barrier
+#     calc_energy_barrier(particle_diam, dielectric, permitivity, contact_angle, bubble_z_pot, particle_z_pot)
+
+#     if energy_barrier_value <= 0:
+#         energy_barrier_value = 0
+
+#     # Kinetic Energy of Attachment
+#     kinetic_e_attach = 0.5 * mass_particle * u1_bulk / (drag_beta_value ** 2)
+#     kinetic_e_detach = 0.5 * mass_particle * (detach_f * (particle_diam + bubble_diam) * math.sqrt(e_impeller / kin_visc)) ** 2
+
+#     # Probabilities
+#     p_att = math.exp(-energy_barrier_value / kinetic_e_attach) if kinetic_e_attach != 0 else 0
+#     p_det = math.exp(-(work_adhesion + energy_barrier_value) / kinetic_e_detach) if kinetic_e_detach != 0 else 0
+#     re = math.sqrt(u2_bulk) * bubble_diam / kin_visc
+
+#     p_col = math.tanh(math.sqrt(3 / 2 * (1 + (3 / 16 * re) / (1 + 0.249 * re ** 0.56))) * (particle_diam / bubble_diam)) ** 2
+
+#     if p_col >= 1:
+#         p_col = 1
+
+#     eiw = GRAVITY / (4 * PI) * (WATER_VISCOSITY ** 3 / e_bulk) ** 0.25
+#     eka = (mass_bubble * u2_bulk - 2 * (bubble_diam / particle_diam) ** 2 * mass_particle * u1_bulk) ** 2 / (100 * (mass_bubble + 2 * (bubble_diam / particle_diam) ** 2 * mass_particle))
+
+#     p_i = 13 * math.sqrt((9 * WATER_VISCOSITY ** 2) / (bubble_diam * surface_tension * total_dens))
+#     pr = math.exp(-eiw / eka) if eka != 0 else 0
+#     pf_transfer = 1
+
+#     # Froth Recovery
+#     b = 2.2  # Different from flot_rec
+#     top_bubble_diam = bubble_diam * bbl_ratio  # Different from flot_rec (no 1/)
+#     coverage_factor = 2 * (bubble_diam / particle_diam) ** 2
+#     buoyant_diam = bubble_diam * ((1 - 0.001275) / ((specific_gravity - 1) * coverage_factor)) ** (1 / 3)
+#     pfr = math.exp(b * particle_diam / buoyant_diam)
+#     rmax = bubble_diam / top_bubble_diam
+#     froth_ret_time = froth_height / specific_gas_rate * pfr
+#     alpha = 0.05
+
+#     r_attachment = rmax * math.exp(-alpha * froth_ret_time)
+
+#     air_flow_rate = specific_gas_rate * cell_area
+#     water_flow_rate = cell_volume / (ret_time / num_cells * 60)
+#     r_water_max = (air_flow_rate / water_flow_rate) / ((1 / 0.2) - 1)
+
+#     if r_water_max > 1:
+#         r_water_max = 0.15  # Different from flot_rec
+
+#     r_entrainment = r_water_max * math.exp(-0.0325 * (particle_dens - WATER_DENSITY) / 1000 - 0.063 * particle_diam * 1000000)
+
+#     froth_recovery_factor = r_entrainment + r_attachment
+
+#     # Cap froth recovery factor at 1.0 (cannot exceed 100%)
+#     if froth_recovery_factor > 1.0:
+#         froth_recovery_factor = 1.0
+
+#     # Rate Constant
+#     rate_const = beta * n_bubble * p_att * p_col * (1 - p_det) * 60
+
+#     # Dispersion Model (uses Peclet number for axial dispersion)
+#     Aa = (1 + 4 * rate_const * ret_time / (num_cells * pe)) ** 0.5
+
+#     # Collection zone recovery using dispersion model (accounts for back-mixing)
+#     recovery_ci = 1 - 4 * Aa * math.exp(pe / 2) / ((1 + Aa) ** 2 * math.exp(Aa * pe / 2) - (1 - Aa) ** 2 * math.exp(-Aa * pe / 2))
+
+#     recovery_i = recovery_ci * froth_recovery_factor / (recovery_ci * froth_recovery_factor + 1 - recovery_ci)
+
+#     if water_or_particle == "Water":
+#         return r_water_max
+#     elif water_or_particle == "Particle":
+#         return 1 - (1 - recovery_i) ** num_cells
+#     else:
+#         return 0.0
+
+# def cyclone_rec(size, cut_size, alpha, water_rec):
+#     """
+#     Lynch-Rao Hydrocyclone model, with entrainment due to water recovery.
+
+#     Args:
+#         size: Particle size
+#         cut_size: Cut size (d50)
+#         alpha: Sharpness parameter
+#         water_rec: Water recovery
+
+#     Returns:
+#         float: Cyclone recovery
+#     """
+#     x = size / cut_size
+#     y = (math.exp(alpha * x) - 1) / (math.exp(alpha * x) + math.exp(alpha) - 2)
+#     cyclone_rec = y * (1 - water_rec) + water_rec
+
+#     return cyclone_rec
 
 
-def grind_lib(tonnage_input, grade_input, lib_intensity):
-    """
-    Grinding model based on mass balance and liberation intensity.
-    Liberation intensity indicates what portion of middling material is liberated.
-    Liberation_intensity -> what degree of liberation you can achieve (fitting parameter).
+# # def grind_lib(tonnage_input, grade_input, lib_intensity):
+#     """
+#     Grinding model based on mass balance and liberation intensity.
+#     Liberation intensity indicates what portion of middling material is liberated.
+#     Liberation_intensity -> what degree of liberation you can achieve (fitting parameter).
 
-    Args:
-        tonnage_input: List/array of 4 tonnage values
-        grade_input: List/array of 4 grade values
-        lib_intensity: Liberation intensity (%)
+#     Args:
+#         tonnage_input: List/array of 4 tonnage values
+#         grade_input: List/array of 4 grade values
+#         lib_intensity: Liberation intensity (%)
 
-    Returns:
-        list: Updated tonnage values after liberation [4 elements]
-    """
-    tonnage = [0] + list(tonnage_input)  # Add dummy 0 at index 0 for 1-based indexing
-    grade = [0] + list(grade_input)
-    grind_lib_temp = [0] * 5  # Index 0-4, we'll use 1-4
+#     Returns:
+#         list: Updated tonnage values after liberation [4 elements]
+#     """
+#     tonnage = [0] + list(tonnage_input)  # Add dummy 0 at index 0 for 1-based indexing
+#     grade = [0] + list(grade_input)
+#     grind_lib_temp = [0] * 5  # Index 0-4, we'll use 1-4
 
-    # Material in class = material in + material broken in - material broken out. Grade in = grade out
-    grind_lib_temp[1] = tonnage[1] + (lib_intensity / 100 * tonnage[2] * grade[2] - lib_intensity / 100 * tonnage[2] * grade[4]) / (grade[1] - grade[4]) + \
-                        (lib_intensity / 100 * tonnage[3] * grade[3] - lib_intensity / 100 * tonnage[3] * grade[4]) / (grade[1] - grade[4])
-    grind_lib_temp[2] = tonnage[2] - tonnage[2] * lib_intensity / 100
-    grind_lib_temp[3] = tonnage[3] - tonnage[3] * lib_intensity / 100
-    grind_lib_temp[4] = tonnage[4] + (lib_intensity / 100 * tonnage[2] * grade[2] - lib_intensity / 100 * tonnage[2] * grade[1]) / (grade[4] - grade[1]) + \
-                        (lib_intensity / 100 * tonnage[3] * grade[3] - lib_intensity / 100 * tonnage[3] * grade[1]) / (grade[4] - grade[1])
+#     # Material in class = material in + material broken in - material broken out. Grade in = grade out
+#     grind_lib_temp[1] = tonnage[1] + (lib_intensity / 100 * tonnage[2] * grade[2] - lib_intensity / 100 * tonnage[2] * grade[4]) / (grade[1] - grade[4]) + \
+#                         (lib_intensity / 100 * tonnage[3] * grade[3] - lib_intensity / 100 * tonnage[3] * grade[4]) / (grade[1] - grade[4])
+#     grind_lib_temp[2] = tonnage[2] - tonnage[2] * lib_intensity / 100
+#     grind_lib_temp[3] = tonnage[3] - tonnage[3] * lib_intensity / 100
+#     grind_lib_temp[4] = tonnage[4] + (lib_intensity / 100 * tonnage[2] * grade[2] - lib_intensity / 100 * tonnage[2] * grade[1]) / (grade[4] - grade[1]) + \
+#                         (lib_intensity / 100 * tonnage[3] * grade[3] - lib_intensity / 100 * tonnage[3] * grade[1]) / (grade[4] - grade[1])
 
-    return grind_lib_temp[1:5]  # Return elements 1-4
+#     return grind_lib_temp[1:5]  # Return elements 1-4
 
+# def grind_lib(tonnage_input, grade_input, lib_intensity):
+#     """
+#     Grinding model based on mass balance and liberation intensity.
+#     Liberation intensity indicates what portion of middling material is liberated.
+#     Liberation_intensity -> what degree of liberation you can achieve (fitting parameter).
+
+#     Args:
+#         tonnage_input: List/array of 4 tonnage values
+#         grade_input: List/array of 4 grade values
+#         lib_intensity: Liberation intensity (%)
+
+#     Returns:
+#         list: Updated tonnage values after liberation [4 elements]
+#     """
+#     tonnage = [0] + list(tonnage_input)  # Add dummy 0 at index 0 for 1-based indexing
+#     grade = [0] + list(grade_input)
+#     grind_lib_temp = [0] * 5  # Index 0-4, we'll use 1-4
+
+#     # Material in class = material in + material broken in - material broken out. Grade in = grade out
+#     grind_lib_temp[1] = tonnage[1] + (lib_intensity / 100 * tonnage[2] * grade[2] - lib_intensity / 100 * tonnage[2] * grade[4]) / (grade[1] - grade[4]) + \
+#                         (lib_intensity / 100 * tonnage[3] * grade[3] - lib_intensity / 100 * tonnage[3] * grade[4]) / (grade[1] - grade[4])
+#     grind_lib_temp[2] = tonnage[2] - tonnage[2] * lib_intensity / 100
+#     grind_lib_temp[3] = tonnage[3] - tonnage[3] * lib_intensity / 100
+#     grind_lib_temp[4] = tonnage[4] + (lib_intensity / 100 * tonnage[2] * grade[2] - lib_intensity / 100 * tonnage[2] * grade[1]) / (grade[4] - grade[1]) + \
+#                         (lib_intensity / 100 * tonnage[3] * grade[3] - lib_intensity / 100 * tonnage[3] * grade[1]) / (grade[4] - grade[1])
+
+#     return grind_lib_temp[1:5]  # Return elements 1-4
 
 def grind_break(tonnage_input, top_size_input, bottom_size_input, selection_input, break_intensity):
     """
@@ -585,7 +627,6 @@ def copper_leaching_rate(Ea, T, P_O2, n, Phi, H_plus, MFeS2, X_Cu, k0=1.0, R=8.3
 
     return dX_Cu_dt
 
-
 def solvent_extraction(C_Cu_in_aq, K_ex, RH, H_plus, O_A):
     """
     Calculate output copper concentration from solvent extraction.
@@ -610,7 +651,6 @@ def solvent_extraction(C_Cu_in_aq, K_ex, RH, H_plus, O_A):
 
     return C_Cu_out_aq
 
-
 def electrowinning_concentration(C_Cu_in, eta_CE, I, n, F, M_Cu):
     """
     Calculate output copper concentration from electrowinning.
@@ -633,7 +673,6 @@ def electrowinning_concentration(C_Cu_in, eta_CE, I, n, F, M_Cu):
 
     return C_Cu_out
 
-
 def cell_voltage(E_eq, eta_cath, eta_anode, I, R):
     """
     Calculate cell voltage for electrowinning.
@@ -653,7 +692,6 @@ def cell_voltage(E_eq, eta_cath, eta_anode, I, R):
     V_cell = E_eq + eta_cath + eta_anode + I * R
 
     return V_cell
-
 
 def nernst_potential(E_Cu_0, a_Cu2, R=8.314, T=298.15, F=96485, n=2):
     """
@@ -676,7 +714,6 @@ def nernst_potential(E_Cu_0, a_Cu2, R=8.314, T=298.15, F=96485, n=2):
 
     return E_eq
 
-
 def overpotential(a, j, b):
     """
     Calculate overpotential as function of current density.
@@ -695,7 +732,6 @@ def overpotential(a, j, b):
 
     return eta
 
-
 # Base case parameters for electrowinning
 ELECTROWINNING_BASE_PARAMS = {
     'M_Cu': 63.55,  # g/mol
@@ -708,7 +744,6 @@ ELECTROWINNING_BASE_PARAMS = {
     'T': 298.15,  # Temperature (K)
     'R': 8.314  # Universal gas constant (J/mol·K)
 }
-
 
 # Base case parameters for copper leaching
 LEACHING_BASE_PARAMS = {
@@ -724,10 +759,33 @@ LEACHING_BASE_PARAMS = {
     'R': 8.314  # Universal gas constant (J/mol·K)
 }
 
-
-sg = 4.2 # Specific gravity
-sp_power = 1 # Specific power (W/m^3 before conversion)
-sp_gas_rate = 2 # Superficial gas rate (cm/s before conversion)
+def flot_constants():
+    return {"specific_gravity": 4.2,
+            "specific_power_input": 1,
+            "specific_gas_rate": 2,
+            "air_fraction": 0.05,
+            "slurry_fraction": 0.15,
+            "particle_z_pot": -50,
+            "bubble_z_pot": -0.03,
+            "num_cells": 1,
+            "ret_time": 23.67,
+            "cell_volume": 700,
+            "froth_height": 0.165,
+            "froth_type": 4,
+            "frother_conc": 50,
+            "particle_diam": 75,
+            "grade": 28,
+            "contact_angle": 52.3,
+            "permitivity": 8.854,
+            "dielectric": 86.5,
+            "pe": 4,
+            "water_or_particle": "Particle",
+            "cell_area": 200,
+            "bbl_ratio": 10
+            }
+specific_gravity = 4.2 # Specific gravity
+specific_power_input= 1 # Specific power (W/m^3 before conversion)
+specific_gas_rate = 2 # specified gas rate (cm/s before conversion)
 air_fraction = 0.05 # Air fraction
 slurry_fraction = 0.15 # Slurry fraction
 particle_z_pot = -50 # Particle zeta potential
@@ -736,7 +794,7 @@ num_cells = 1 # Number of cells in the flotation bank
 ret_time = 23.67 # Total retention time (minutes) for entire bank
 cell_volume = 700 #m^3
 froth_height = .165 # Froth height (m)
-frother = 4  # (2=MIBC, 3=PPG400, 4=Octanol, 5=Pentanol)
+froth_type = 4  # (2=MIBC, 3=PPG400, 4=Octanol, 5=Pentanol)
 frother_conc = 50 # Frother concentration mg/L
 particle_diam = 75 # Particle diameter (in microns)
 grade = 28 # Grade in % copper
@@ -748,176 +806,163 @@ water_or_particle = "Particle" # String "Water" or "Particle"
 cell_area = 200 # Cell area
 bbl_ratio = 10 # Bubble ratio
 
-tonnage_input = 313 # Tonnage input
-grade_input = 28 # Grade input
-lib_intensity = 100 # Liberation intensity (%)
 
+def fitting_parameters():
+    return {
+        'b': 2,
+        'alpha': 0.10,
+        'coverage': 0.525,
+        'bubble_f': 0.825,
+        'detach_f': 0.5,
+        'bulk_zone': 0.5
+    }
 
+def input_variables(): 
+    return {
+        "tonnage_input": 313,
+        "grade_input": 28,
+        "lib_intensity": 100,
+        "specific_gravity_for_grade": 4.2,
+        "particle_z_pot_for_grade": -50,
+        "grade_value": 29,
+        "particle_size": 75,
+        "contact_angle_deg": 52.3
+    }
+
+b, alpha, coverage, bubble_f, detach_f, bulk_zone = fitting_parameters().values() 
+tonnage_input, grade_input, lib_intensity, specific_gravity_for_grade, particle_z_pot_for_grade, grade_value, particle_size, contact_angle_deg = input_variables().values()  
+
+recovery = flot_rec(
+            specific_gravity_for_grade, specific_power_input, specific_gas_rate, air_fraction, slurry_fraction,
+            particle_z_pot_for_grade, bubble_z_pot, num_cells, ret_time, cell_volume,
+            froth_height, froth_type, frother_conc, particle_size, grade_value,
+            contact_angle_deg, permitivity, dielectric, pe, water_or_particle,
+            cell_area, bbl_ratio, b, alpha, coverage, bubble_f, detach_f, bulk_zone
+        )
+print(recovery)
 # Size-by-grade flotation recovery calculation
 # Calculate recovery for each size-grade combination
 
-# Define size classes (microns) - from your matrix
-size_classes = [300, 150, 75, 20]
+# # Define size classes (microns) - from your matrix
+# size_classes = [150, 75]
 
-# Define grade classes (% Chalco in film) and corresponding contact angles
-grade_classes = [0.05, 0.20, 0.40, 0.75, 1.0]  # 0.1-10%, 10-30%, 30-50%, 50-100%, 100% Chalco
-contact_angles = [16, 33, 42, 47, 50]  # degrees, corresponding to each grade class
+# # Define grade classes (% Chalco in film) and corresponding contact angles
+# grade_classes = [0.20, 0.40, 0.75]  # 0.1-10%, 10-30%, 30-50%, 50-100%, 100% Chalco
+# contact_angles = [33, 42, 47]  # degrees, corresponding to each grade class
 
-# Mass distribution by size (total mass %)
-total_mass_pct = [13.9, 15.8, 31.3, 39.2, 100.1]
-micron_distribution = [300, 150, 75, 20]
+# # Mass distribution by size (total mass %)
+# total_mass_pct = [15.8, 31.3, 39.2]
+# micron_distribution = size_classes
 
-throughput_grades = [0.05, 0.20, 0.40, 0.75, 1.0]  # 0.1-10%, 10-30%, 30-50%, 50-100%, 100% Chalco
-throughput_distribution = [
-    [136.22, .87, .42, .20, .29],
-    [156.95, .61, .18, .14, .12],
-    [309.24, .92, .61, .38, 1.85],
-    [386.63, .76, .34, .39, 3.88],
-    [989.04, 3.16, 1.55, 1.11, 6.14]
-]
+# throughput_grades = grade_classes   # 0.1-10%, 10-30%, 30-50%, 50-100%, 100% Chalco
+# throughput_distribution = [
+#     [136.22, .87, .42, .20, .29],
+#     [156.95, .61, .18, .14, .12],
+#     [309.24, .92, .61, .38, 1.85],
+#     [386.63, .76, .34, .39, 3.88],
+#     [989.04, 3.16, 1.55, 1.11, 6.14]
+# ]
 
-# Grade distribution within each size class (% of that size class)
-grade_distribution = [
-    [98.71, 0.63, 0.31, 0.14, 0.21],  # 212.13 micron
-    [99.34, 0.38, 0.11, 0.09, 0.08],  # 106.07 micron
-    [98.80, 0.30, 0.20, 0.12, 0.59],  # 38.73 micron
-    [98.63, 0.19, 0.09, 0.10, 0.99],   # 10.00 micron
-    [98.9, .32, .16, .11, .61] # average
-]
+# # Grade distribution within each size class (% of that size class)
+# grade_distribution = [
+#     [98.71, 0.63, 0.31, 0.14, 0.21],  # 212.13 micron
+#     [99.34, 0.38, 0.11, 0.09, 0.08],  # 106.07 micron
+#     [98.80, 0.30, 0.20, 0.12, 0.59],  # 38.73 micron
+#     [98.63, 0.19, 0.09, 0.10, 0.99],   # 10.00 micron
+#     [98.9, .32, .16, .11, .61] # average
+# ]
 
-sg_by_grade = [3.6, 4, 4.2, 4.2, 4.5]
-contact_angles_by_grade = [20, 30, 40, 52.3, 60]  # Tuned to achieve ~3% concentrate grade
-particle_z_pot_by_grade = [-50, -50, -50, -50, -50]
-grade_by_grade = [0.002, 8, 12, 28, 34.65]
+# specific_gravity_by_grade = [3.6, 4, 4.2, 4.2, 4.5]
+# contact_angles_by_grade = [22, 32.5, 42, 51.5, 62.5]  # Tuned to achieve ~3% concentrate grade
+# particle_z_pot_by_grade = [-50, -50, -50, -50, -50]
+# grade_by_grade = [0.002, 8, 12, 28, 34.65]
 
 
-print("\n" + "="*100)
-print("SIZE-BY-GRADE FLOTATION RECOVERY CALCULATION")
-print("="*100)
-print(f"{'Size (µm)':<12} {'Grade Range':<18} {'Mass (t)':<12} {'Grade %Cu':<12} {'Contact Angle':<15} {'Recovery %':<15}")
-print("-"*100)
-
-grade_labels = ["0.1-10%", "10-30%", "30-50%", "50-100%", "100%"]
-
-total_feed_mass = 0
-total_recovered_mass = 0
-total_cu_in_feed = 0
-total_cu_recovered = 0
-
-# Store concentrate data for each class
-concentrate_data = []
-
-# Calculate recovery for each combination
-for size_idx, particle_size in enumerate(size_classes):
-    size_total_mass = total_mass_pct[size_idx]
-
-    for grade_idx, grade_pct in enumerate(grade_classes):
-        # Use grade-specific parameters
-        contact_angle_deg = contact_angles_by_grade[grade_idx]
-        sg_for_grade = sg_by_grade[grade_idx]
-        particle_z_pot_for_grade = particle_z_pot_by_grade[grade_idx]
-        grade_value = grade_by_grade[grade_idx]  # Actual grade % Cu
-
-        grade_mass_fraction = grade_distribution[size_idx][grade_idx] / 100.0  # Convert % to fraction
-        mass_in_class = throughput_distribution[size_idx][grade_idx]  # Use actual throughput in tonnes
-
-        # Calculate recovery for this size-grade class
-        recovery = flot_rec(
-            sg_for_grade, sp_power, sp_gas_rate, air_fraction, slurry_fraction,
-            particle_z_pot_for_grade, bubble_z_pot, num_cells, ret_time, cell_volume,
-            froth_height, frother, frother_conc, particle_size, grade_value,
-            contact_angle_deg, permitivity, dielectric, pe, water_or_particle,
-            cell_area, bbl_ratio
-        )
-
-        # Calculate Cu content
-        cu_in_feed = mass_in_class * grade_value / 100
-        cu_recovered = cu_in_feed * recovery
-        mass_recovered = mass_in_class * recovery
-
-        total_feed_mass += mass_in_class
-        total_recovered_mass += mass_recovered
-        total_cu_in_feed += cu_in_feed
-        total_cu_recovered += cu_recovered
-
-        # Store concentrate data
-        concentrate_data.append({
-            'size': particle_size,
-            'size_idx': size_idx,
-            'grade_label': grade_labels[grade_idx],
-            'grade_idx': grade_idx,
-            'mass_feed': mass_in_class,
-            'mass_conc': mass_recovered,
-            'cu_feed': cu_in_feed,
-            'cu_conc': cu_recovered,
-            'grade_value': grade_value,
-            'recovery': recovery
-        })
-
-        print(f"{particle_size:<12.2f} {grade_labels[grade_idx]:<18} {mass_in_class:<12.2f} {grade_value:<12.2f} {contact_angle_deg:<15} {recovery*100:<15.2f}")
-    print()  # Blank line between size classes
-
-overall_recovery = total_recovered_mass / total_feed_mass if total_feed_mass > 0 else 0
-overall_concentrate_grade = (total_cu_recovered / total_recovered_mass * 100) if total_recovered_mass > 0 else 0
-
-print("="*100)
-print(f"\nOVERALL WEIGHTED RECOVERY: {overall_recovery*100:.2f}%")
-print(f"Total Feed Mass: {total_feed_mass:.2f} tonnes")
-print(f"Total Recovered Mass: {total_recovered_mass:.2f} tonnes")
-print(f"Total Cu in Feed: {total_cu_in_feed:.2f} tonnes Cu")
-print(f"Total Cu Recovered: {total_cu_recovered:.2f} tonnes Cu")
-print(f"Overall Concentrate Grade: {overall_concentrate_grade:.2f}% Cu")
-print("="*100)
-
-# # CONCENTRATE COMPOSITION ANALYSIS
 # print("\n" + "="*100)
-# print("CONCENTRATE COMPOSITION BY SIZE-GRADE CLASS")
+# print("SIZE-BY-GRADE FLOTATION RECOVERY CALCULATION")
 # print("="*100)
-# print(f"{'Size (µm)':<12} {'Grade Range':<18} {'Conc Mass (t)':<15} {'Cu in Conc (t)':<15} {'Class Grade %':<15} {'% of Total Conc':<15} {'Grade Contrib':<15}")
+# print(f"{'Size (µm)':<12} {'Grade Range':<18} {'Mass (t)':<12} {'Grade %Cu':<12} {'Contact Angle':<15} {'Recovery %':<15}")
 # print("-"*100)
 
-# for data in concentrate_data:
-#     pct_of_conc = (data['mass_conc'] / total_recovered_mass * 100) if total_recovered_mass > 0 else 0
-#     # Concentrate grade contribution from this class = (Cu from this class / Total conc mass) * 100
-#     grade_contribution = (data['cu_conc'] / total_recovered_mass * 100) if total_recovered_mass > 0 else 0
-#     print(f"{data['size']:<12.2f} {data['grade_label']:<18} {data['mass_conc']:<15.4f} {data['cu_conc']:<15.4f} {data['grade_value']:<15.2f} {pct_of_conc:<15.2f} {grade_contribution:<15.4f}")
+# grade_labels = ["10-30%", "30-50%", "50-100%"]
 
-# print("\n" + "="*100)
-# print("INDIVIDUAL CLASS CONCENTRATE GRADES (if each class was processed alone)")
+# total_feed_mass = 0
+# total_recovered_mass = 0
+# total_cu_in_feed = 0
+# total_cu_recovered = 0
+
+# # Store concentrate data for each class
+# concentrate_data = []
+
+# # Calculate recovery for each combination
+# for size_idx, particle_size in enumerate(size_classes):
+#     size_total_mass = total_mass_pct[size_idx]
+
+#     for grade_idx, grade_pct in enumerate(grade_classes):
+#         # Use grade-specific parameters
+#         contact_angle_deg = contact_angles_by_grade[grade_idx]
+#         specific_gravity_for_grade = specific_gravity_by_grade[grade_idx]
+#         particle_z_pot_for_grade = particle_z_pot_by_grade[grade_idx]
+#         grade_value = grade_by_grade[grade_idx]  # Actual grade % Cu
+
+#         grade_mass_fraction = grade_distribution[size_idx][grade_idx] / 100.0  # Convert % to fraction
+#         mass_in_class = throughput_distribution[size_idx][grade_idx]  # Use actual throughput in tonnes
+
+#         # Calculate recovery for this size-grade class
+#         recovery = flot_rec(
+#             specific_gravity_for_grade, specific_power_input, specific_gas_rate, air_fraction, slurry_fraction,
+#             particle_z_pot_for_grade, bubble_z_pot, num_cells, ret_time, cell_volume,
+#             froth_height, froth_type, frother_conc, particle_size, grade_value,
+#             contact_angle_deg, permitivity, dielectric, pe, water_or_particle,
+#             cell_area, bbl_ratio, b, alpha, coverage, bubble_f, detach_f, bulk_zone
+#         )
+
+#         # Calculate Cu content
+#         cu_in_feed = mass_in_class * grade_value / 100
+#         cu_recovered = cu_in_feed * recovery
+#         mass_recovered = mass_in_class * recovery
+
+#         total_feed_mass += mass_in_class
+#         total_recovered_mass += mass_recovered
+#         total_cu_in_feed += cu_in_feed
+#         total_cu_recovered += cu_recovered
+
+#         # Store concentrate data
+#         concentrate_data.append({
+#             'size': particle_size,
+#             'size_idx': size_idx,
+#             'grade_label': grade_labels[grade_idx],
+#             'grade_idx': grade_idx,
+#             'mass_feed': mass_in_class,
+#             'mass_conc': mass_recovered,
+#             'cu_feed': cu_in_feed,
+#             'cu_conc': cu_recovered,
+#             'grade_value': grade_value,
+#             'recovery': recovery
+#         })
+
+#         print(f"{particle_size:<12.2f} {grade_labels[grade_idx]:<18} {mass_in_class:<12.2f} {grade_valuevalue:<12.2f} {contact_angle_deg:<15} {recovery*100:<15.2f}")
+#     print()  # Blank line between size classes
+
+# overall_recovery = total_recovered_mass / total_feed_mass if total_feed_mass > 0 else 0
+# overall_concentrate_grade = (total_cu_recovered / total_recovered_mass * 100) if total_recovered_mass > 0 else 0
+
 # print("="*100)
-# print(f"{'Size (µm)':<12} {'Grade Range':<18} {'Feed Mass (t)':<15} {'Conc Mass (t)':<15} {'Individual Grade %':<20}")
-# print("-"*100)
-
-# for data in concentrate_data:
-#     individual_grade = (data['cu_conc'] / data['mass_conc'] * 100) if data['mass_conc'] > 0 else 0
-#     print(f"{data['size']:<12.2f} {data['grade_label']:<18} {data['mass_feed']:<15.4f} {data['mass_conc']:<15.4f} {individual_grade:<20.2f}")
-
-# Highlight the specific class you asked about: 75 microns, 50-100% grade
-# print("\n" + "="*100)
-# print("SPECIFIC CLASS HIGHLIGHT: 75 µm, 50-100% GRADE RANGE")
-# print("="*100)
-# target_class = [d for d in concentrate_data if d['size'] == 75 and d['grade_label'] == '50-100%'][0]
-# target_individual_grade = (target_class['cu_conc'] / target_class['mass_conc'] * 100) if target_class['mass_conc'] > 0 else 0
-
-# print(f"Feed Mass:                {target_class['mass_feed']:.4f} tonnes")
-# print(f"Concentrate Mass:         {target_class['mass_conc']:.4f} tonnes")
-# print(f"Cu in Feed:              {target_class['cu_feed']:.4f} tonnes Cu")
-# print(f"Cu in Concentrate:       {target_class['cu_conc']:.4f} tonnes Cu")
-# print(f"Recovery:                {target_class['recovery']*100:.2f}%")
-# print(f"Individual Class Grade:  {target_individual_grade:.2f}% Cu")
-# print(f"% of Total Concentrate:  {(target_class['mass_conc'] / total_recovered_mass * 100):.2f}%")
+# print(f"\nOVERALL WEIGHTED RECOVERY: {overall_recovery*100:.2f}%")
+# print(f"Total Feed Mass: {total_feed_mass:.2f} tonnes")
+# print(f"Total Recovered Mass: {total_recovered_mass:.2f} tonnes")
+# print(f"Total Cu in Feed: {total_cu_in_feed:.2f} tonnes Cu")
+# print(f"Total Cu Recovered: {total_cu_recovered:.2f} tonnes Cu")
+# print(f"Overall Concentrate Grade: {overall_concentrate_grade:.2f}% Cu")
 # print("="*100)
 
-
-tonnage_input = [138, 158, 313, 392]
-top_size_input = [300, 150, 75, 20]
-bottom_size_input = [150, 75, 20, 0]
-selection_input = [0.1, 0.2, 0.3, 0.4]
+tonnage_input = [1000,10000]
+top_size_input = [150, 75]
+bottom_size_input = [75, 20]
+selection_input = [0.2, 0.3]
 break_intensity = 8
 grinding_breaking = grind_break(tonnage_input, top_size_input, bottom_size_input, selection_input, break_intensity)
 print(grinding_breaking)
-
-
 
 """
 All fitting parameters:

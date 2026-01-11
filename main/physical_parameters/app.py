@@ -26,6 +26,8 @@ def optimize():
 
     Expects JSON with:
         - feed_grade: float (0.002 to 0.01, representing 0.2% to 1%)
+        - concentrate_grade: float (0.15 to 0.35, representing 15% to 35%)
+        - testing_particle_size: float (50 to 150 microns)
         - target_tonnage: int (copper production in tons/year)
 
     Returns JSON with:
@@ -37,12 +39,11 @@ def optimize():
         data = request.get_json()
 
         # Extract inputs
-        feed_grade = float(data.get('feed_grade', 0.0058))  # Default 0.58%
+        feed_grade = float(data.get('feed_grade', 0.006))  # Default 0.6%
+        concentrate_grade = float(data.get('concentrate_grade', 0.30))  # Default 30%
+        testing_particle_size = float(data.get('testing_particle_size', 100))  # Default 100 microns
         target_tonnage = int(data.get('target_tonnage', 10000))  # Default 10,000 tons/year
         max_iterations = int(data.get('max_iterations', 30))  # Optimization iterations
-
-        # Fixed parameters
-        concentrate_grade = 0.28  # 28% concentrate grade (industry standard)
 
         # Run optimization WITHOUT electrolyzer
         optimizer_no = OptimalTEA(
@@ -58,6 +59,7 @@ def optimize():
         npv_no = calculate_npv(result_no['total_capex'], result_no['total_opex'], result_no['cu_produced_tons'])
         irr_no = calculate_irr(result_no['total_capex'], result_no['total_opex'], result_no['cu_produced_tons'])
         payback_no = calculate_payback_period(result_no['total_capex'], result_no['total_opex'], result_no['cu_produced_tons'])
+        cost_per_ton_no = (result_no['total_capex']/25 + result_no['total_opex']) / result_no['cu_produced_tons'] if result_no['cu_produced_tons'] > 0 else 0
 
         # Run optimization WITH electrolyzer
         optimizer_yes = OptimalTEA(
@@ -73,14 +75,25 @@ def optimize():
         npv_yes = calculate_npv(result_yes['total_capex'], result_yes['total_opex'], result_yes['cu_produced_tons'])
         irr_yes = calculate_irr(result_yes['total_capex'], result_yes['total_opex'], result_yes['cu_produced_tons'])
         payback_yes = calculate_payback_period(result_yes['total_capex'], result_yes['total_opex'], result_yes['cu_produced_tons'])
+        cost_per_ton_yes = (result_yes['total_capex']/25 + result_yes['total_opex']) / result_yes['cu_produced_tons'] if result_yes['cu_produced_tons'] > 0 else 0
 
         # Calculate improvement
         npv_improvement = npv_yes - npv_no
         npv_improvement_pct = (npv_improvement / npv_no * 100) if npv_no != 0 else 0
+        cost_per_ton_delta = cost_per_ton_yes - cost_per_ton_no
 
-        # Unpack optimal parameters
-        grinding_no, flotation_no, leaching_no, sx_no, ew_no = optimizer_no.unpack_parameters(results_no['optimal_params'])
-        grinding_yes, flotation_yes, leaching_yes, sx_yes, ew_yes = optimizer_yes.unpack_parameters(results_yes['optimal_params'])
+        # Get calculated parameters (includes num_cells for flotation)
+        grinding_no = result_no['calculated_parameters']['grinding']
+        flotation_no = result_no['calculated_parameters']['flotation']
+        leaching_no = result_no['calculated_parameters']['leaching']
+        sx_no = result_no['calculated_parameters']['sx']
+        ew_no = result_no['calculated_parameters']['ew']
+
+        grinding_yes = result_yes['calculated_parameters']['grinding']
+        flotation_yes = result_yes['calculated_parameters']['flotation']
+        leaching_yes = result_yes['calculated_parameters']['leaching']
+        sx_yes = result_yes['calculated_parameters']['sx']
+        ew_yes = result_yes['calculated_parameters']['ew']
 
         # Build response
         response = {
@@ -98,6 +111,7 @@ def optimize():
                 'total_opex': result_no['total_opex'],
                 'copper_produced': result_no['cu_produced_tons'],
                 'ore_feed_required': result_no['ore_feed_tpa'],
+                'cost_per_ton': cost_per_ton_no,
                 'recoveries': {
                     'flotation': result_no['recoveries']['flotation'] * 100,
                     'leaching': result_no['recoveries']['leaching'] * 100,
@@ -121,6 +135,7 @@ def optimize():
                 'total_opex': result_yes['total_opex'],
                 'copper_produced': result_yes['cu_produced_tons'],
                 'ore_feed_required': result_yes['ore_feed_tpa'],
+                'cost_per_ton': cost_per_ton_yes,
                 'recoveries': {
                     'flotation': result_yes['recoveries']['flotation'] * 100,
                     'leaching': result_yes['recoveries']['leaching'] * 100,
@@ -139,6 +154,7 @@ def optimize():
             'comparison': {
                 'npv_improvement': npv_improvement,
                 'npv_improvement_pct': npv_improvement_pct,
+                'cost_per_ton_delta': cost_per_ton_delta,
                 'recommendation': 'Use Electrolyzer' if npv_improvement > 0 else 'Buy Acid'
             }
         }

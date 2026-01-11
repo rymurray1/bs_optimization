@@ -1,14 +1,17 @@
 # TEA Model Constants and Variables
 
+import math
+
 # ECONOMIC CONSTANTS (Row 35-43)
-water_cost = 0.3  # $/m3
-electricity_cost = 50  # $/MWh
+# Adjusted to realistic industry values
+water_cost = 0.3  # $/m3 (industrial process water)
+electricity_cost = 50  # $/MWh (industrial rates: $50-80/MWh)
 heat_cost = 20  # $/MWh (from natural gas)
 plant_lifetime = 25  # years
-interest_rate = 0.08  # % (input as 8, converted to decimal)
-o_m_opex = 0.035  # x CAPEX
-capacity_factor = 0.9  # annual operating capacity
-lang_factor = 5
+interest_rate = 0.08  # 8% discount rate
+o_m_opex = 0.035  # 3.5% of CAPEX for O&M
+capacity_factor = 0.9  # 90% annual operating capacity
+lang_factor = 5  # Lang factor for installed costs
 
 # Time conversions
 year_in_days = 365  # days
@@ -28,10 +31,10 @@ elements = {
 }
 
 # GRINDING PARAMETERS (Rows 55-67)
-# Feed and product sizes
-feed_size = 100  # microns (F)
-product_size = 15  # microns (P)
-p1 = 20  # microns
+# Feed and product sizes (default values)
+feed_size = 10000  # microns (F)
+product_size = 100  # microns (P)
+p1 = 1000  # microns
 g = 2.5  # g/rev (assumed)
 
 # Calculated exponents
@@ -40,19 +43,18 @@ feed_size_power = feed_size ** 0.5  # F^(0.5)
 g_power = g ** 0.82  # G^(0.82)
 p1_power = p1 ** 0.23  # P1^(0.23)
 
-# Work index and work calculations (kWh/t)
-# Wi calculation - Wet milling (Chopey)
-work_index = 44.5 / (p1_power * g_power * ((10 / product_size_power) - (10 / feed_size_power)))  # kWh/t
-work = 10 * work_index * ((1 / product_size_power) - (1 / feed_size_power))  # kWh/t (W)
+
+work_index = 13  # kWh/t
+work = work_index * 10 * (1/math.sqrt(product_size) - 1/math.sqrt(feed_size))
 
 # JAW CRUSHER COST BASIS (Rows 73-74, from Perry's Table 9-50)
-jaw_crusher_basis_1 = {
+jaw_crusher_small = {
     'cost': 34000,  # USD
     'power': 7.5,  # kW
     'exponent': 0.65
 }
 
-jaw_crusher_basis_2 = {
+jaw_crusher_large = {
     'cost': 284000,  # USD
     'power': 74.6,  # kW
     'exponent': 0.81
@@ -60,13 +62,13 @@ jaw_crusher_basis_2 = {
 
 
 # MOTOR COST BASIS (Rows 84-85, from Perry's Table 9-50)
-motor_basis_1 = {
+motor_small = {
     'cost': 12300,  # USD
     'power': 7.5,  # kW
     'exponent': 0.56
 }
 
-motor_basis_2 = {
+motor_large = {
     'cost': 19300,  # USD
     'power': 52,  # kW
     'exponent': 0.77
@@ -75,9 +77,9 @@ motor_basis_2 = {
 # FROTH FLOTATION PARAMETERS (Rows 95-128)
 flotation_work = 20  # kWh/t (assumed); < 10 for ores
 water_flow_rate_multiplier = 4  # x Feed Flow Rate
-residence_time_flotation = 30  # minutes
-cfa_density = 0.0015  # tons/m3
+cfa_density = 2.7  # tonnes/m3 (typical copper ore density, changed from 0.0015 coal fly ash)
 froth_factor_excess = 0.2  # Assumed excess
+residence_time_flotation = 15  # minutes
 
 # VERTICAL AGITATED TANK COST BASIS (Row 134, from Perry's Table 9-50)
 vertical_agitated_tank_basis = {
@@ -88,7 +90,8 @@ vertical_agitated_tank_basis = {
 
 # LEACHING PARAMETERS (Rows 150-171)
 sl_ratio = 0.05  # S:L Ratio (solid to liquid)
-nitric_acid_density = 1250  # kg/m3
+acid_concentration = 0.15  # 15% acid in solution (typical for leaching, not pure acid)
+sulfuric_acid_density = 1380  # kg/m3
 residence_time_leaching = 180  # minutes
 
 # ATMOSPHERIC TANK COST BASIS (Row 177, from Perry's Table 9-50)
@@ -137,8 +140,8 @@ def equipment_cost(equipment_type, capacity, basis=1):
         Cost in USD
     """
     equipment_data = {
-        'jaw_crusher': [jaw_crusher_basis_1, jaw_crusher_basis_2],
-        'motor': [motor_basis_1, motor_basis_2],
+        'jaw_crusher': [jaw_crusher_small, jaw_crusher_large],
+        'motor': [motor_small, motor_large],
         'vertical_tank': [vertical_agitated_tank_basis],
         'atm_tank': [atm_tank_basis]
     }
@@ -207,11 +210,12 @@ def leaching_rates(throughput_tpa, pb_loss_ppm=20000, density_kg_m3=None):
     Returns:
         dict with keys:
             - 'solids_rate': Solids volumetric flow rate (m3/s)
-            - 'acid_rate': Acid volumetric flow rate (m3/s)
+            - 'acid_rate': Acid volumetric flow rate (m3/s) - actual pure acid
+            - 'solution_rate': Acid solution volumetric flow rate (m3/s)
             - 'total_rate': Total volumetric flow rate (m3/s)
     """
     if density_kg_m3 is None:
-        density_kg_m3 = nitric_acid_density
+        density_kg_m3 = sulfuric_acid_density
 
     # Calculate feed rate from flotation
     feed_rate = throughput_tpa / cfa_density / seconds_per_op_year
@@ -220,17 +224,22 @@ def leaching_rates(throughput_tpa, pb_loss_ppm=20000, density_kg_m3=None):
     loss_fraction = pb_loss_ppm / 1000000
     solids_rate = feed_rate * (1 - loss_fraction)
 
-    # Calculate acid rate
+    # Calculate acid solution rate (liquid phase in slurry)
     solids_mass_rate = solids_rate * cfa_density * 1000  # kg/s
-    acid_mass_rate = ((1 - sl_ratio) / sl_ratio) * solids_mass_rate
-    acid_rate = acid_mass_rate / density_kg_m3
+    solution_mass_rate = ((1 - sl_ratio) / sl_ratio) * solids_mass_rate  # kg/s of acid solution
+    solution_rate = solution_mass_rate / density_kg_m3  # m3/s of acid solution
+
+    # Calculate actual acid consumption (only the acid in the solution, not the water)
+    acid_mass_rate = solution_mass_rate * acid_concentration  # kg/s of pure acid
+    acid_rate = acid_mass_rate / density_kg_m3  # m3/s of pure acid equivalent
 
     # Calculate total rate
-    total_rate = solids_rate + acid_rate
+    total_rate = solids_rate + solution_rate
 
     return {
         'solids_rate': solids_rate,
-        'acid_rate': acid_rate,
+        'acid_rate': acid_rate,  # Pure acid consumption
+        'solution_rate': solution_rate,  # Total acid solution volume
         'total_rate': total_rate
     }
 

@@ -172,28 +172,37 @@ class FlotationStage:
         """
         self.flotation_work = flotation_work_kwh_per_t
 
-    def calculate_capex(self, throughput_tpa, ret_time=None, num_cells=1):
+    def calculate_capex(self, throughput_tpa, ret_time=None, num_cells=1, cell_volume=None):
         """
         CAPEX = vertical agitated tank cost
 
         Steps:
         1. Calculate required tank volume from throughput and retention time
-        2. Scale cost using power-law
-        3. Apply inflation and lang factors
+        2. Divide by number of cells to get volume per cell
+        3. Scale cost using power-law
+        4. Apply inflation and lang factors
 
         Args:
             throughput_tpa: Throughput in tonnes per annum
             ret_time: Retention time (minutes) - if None, uses default from tea.py
             num_cells: Number of cells (default 1)
+            cell_volume: Volume per cell (m³) - if provided, overrides calculated volume
         """
-        # Step 1: Calculate required volume based on retention time
-        if ret_time is None:
-            ret_time_sec = residence_time_flotation_sec
+        # Step 1: Calculate required volume based on retention time OR use provided cell_volume
+        if cell_volume is not None:
+            # Use provided cell volume (from optimization)
+            volume_per_cell = cell_volume
         else:
-            ret_time_sec = ret_time * 60  # Convert minutes to seconds
+            # Calculate volume from throughput and retention time
+            if ret_time is None:
+                ret_time_sec = residence_time_flotation_sec
+            else:
+                ret_time_sec = ret_time * 60  # Convert minutes to seconds
 
-        rates = flotation_rates(throughput_tpa)
-        volume_per_cell = rates['total_rate'] * ret_time_sec * (1 + froth_factor_excess)
+            rates = flotation_rates(throughput_tpa)
+            total_volume_required = rates['total_rate'] * ret_time_sec * (1 + froth_factor_excess)
+            # Divide total volume by number of cells
+            volume_per_cell = total_volume_required / num_cells
 
         # Step 2: Equipment cost with power-law scaling per cell
         # Apply 1.2x volume factor for flotation cells (accounts for froth zone)
@@ -207,7 +216,7 @@ class FlotationStage:
         return total_cost
 
     def calculate_opex(self, throughput_tpa, sp_power=None, ret_time=None,
-                       num_cells=1, frother_conc=None, frother_price_per_kg=5):
+                       num_cells=1, frother_conc=None, frother_price_per_kg=5, cell_volume=None):
         """
         OPEX = annual power cost + water cost + frother reagent cost
 
@@ -224,16 +233,27 @@ class FlotationStage:
             num_cells: Number of cells
             frother_conc: Frother concentration (g/L) - if None, no frother cost
             frother_price_per_kg: Frother reagent price ($/kg, default 5)
+            cell_volume: Volume per cell (m³) - if provided, overrides calculated volume
         """
-        # Calculate tank volume
-        if ret_time is None:
-            ret_time_sec = residence_time_flotation_sec
-        else:
-            ret_time_sec = ret_time * 60
-
+        # Always calculate rates (needed for water and frother costs)
         rates = flotation_rates(throughput_tpa)
-        volume_per_cell = rates['total_rate'] * ret_time_sec * (1 + froth_factor_excess)
-        total_volume = volume_per_cell * num_cells
+
+        # Calculate tank volume
+        if cell_volume is not None:
+            # Use provided cell volume (from optimization)
+            volume_per_cell = cell_volume
+            total_volume = volume_per_cell * num_cells
+        else:
+            # Calculate volume from throughput and retention time
+            if ret_time is None:
+                ret_time_sec = residence_time_flotation_sec
+            else:
+                ret_time_sec = ret_time * 60
+
+            total_volume_required = rates['total_rate'] * ret_time_sec * (1 + froth_factor_excess)
+            # Divide by number of cells
+            volume_per_cell = total_volume_required / num_cells
+            total_volume = total_volume_required
 
         # Power cost from sp_power
         if sp_power is None:
@@ -457,7 +477,7 @@ class SolventExtractionStage:
     Key dependency: Uses copper solution from leaching stage.
     """
 
-    def __init__(self, solvent_price_per_litre=5, solvent_losses_fraction=0.01):
+    def __init__(self, acid_price=129, acid_loss_fraction=0.01):
         """
         Args:
             solvent_price_per_litre: Organic extractant price ($/L)
@@ -465,8 +485,8 @@ class SolventExtractionStage:
             solvent_losses_fraction: Fraction of solvent lost per cycle (0-1)
                                     Typical: 0.005-0.02 (0.5-2% losses)
         """
-        self.solvent_price = solvent_price_per_litre
-        self.solvent_losses = solvent_losses_fraction
+        self.acid_price = acid_price
+        self.acid_loss = acid_loss_fraction
 
     def calculate_capex(self, copper_leached_tpa):
         """
@@ -496,11 +516,11 @@ class SolventExtractionStage:
 
     def calculate_opex(self, copper_extracted_kg, solution_volume_m3):
         """
-        OPEX = organic solvent makeup cost
+        OPEX = acid makeup cost for solvent extraction
 
         Steps:
-        1. Calculate solvent inventory from solution volume
-        2. Calculate annual solvent losses
+        1. Calculate acid inventory from solution volume
+        2. Calculate annual acid losses
         3. Convert to cost
 
         Args:
@@ -508,24 +528,24 @@ class SolventExtractionStage:
             solution_volume_m3: Solution volume processed (m3/year)
 
         Returns:
-            dict with solvent cost breakdown
+            dict with acid cost breakdown
         """
         # Typical O/A ratio is 1:1, so organic volume ≈ aqueous volume
         organic_volume_m3 = solution_volume_m3
         organic_volume_litres = organic_volume_m3 * 1000
 
-        # Annual solvent makeup (only replace losses)
-        annual_solvent_losses_litres = organic_volume_litres * self.solvent_losses
+        # Annual acid makeup (only replace losses)
+        annual_acid_losses_litres = organic_volume_litres * self.acid_loss
 
         # Cost
-        solvent_cost = annual_solvent_losses_litres * self.solvent_price
+        acid_cost = annual_acid_losses_litres * self.acid_price
 
         return {
             'organic_volume_litres': organic_volume_litres,
-            'solvent_losses_litres': annual_solvent_losses_litres,
-            'solvent_losses_fraction': self.solvent_losses,
-            'solvent_cost': solvent_cost,
-            'total': solvent_cost
+            'acid_losses_litres': annual_acid_losses_litres,
+            'acid_losses_fraction': self.acid_loss,
+            'acid_cost': acid_cost,
+            'total': acid_cost
         }
 
     def process(self, copper_leached_kg, K_ex=10, RH=0.2, O_A=1.2, pH=1.1):
