@@ -45,6 +45,8 @@
             height: 50px;
             width: auto;
             opacity: 0.8;
+            display: block;
+            margin: 0 auto;
         }
 
         .subtitle {
@@ -245,18 +247,30 @@
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <img src="{{ url_for('static', filename='blueshift_logo.png') }}" alt="BlueShift" class="logo">
-            <h1>Copper Production Optimizer</h1>
-        </div>
-        <p class="subtitle">Optimize your mineral extraction process with physics-based modeling</p>
+        <h1>Copper Production Optimizer</h1>
 
         <div class="input-section">
             <div class="input-group">
                 <label for="feedGrade">Feed Ore Grade (%)</label>
                 <div class="slider-container">
-                    <input type="range" id="feedGrade" min="0.2" max="1.0" step="0.05" value="0.58">
-                    <div class="value-display" id="feedGradeValue">0.58%</div>
+                    <input type="range" id="feedGrade" min="0.2" max="1.0" step="0.01" value="0.6">
+                    <div class="value-display" id="feedGradeValue">0.6%</div>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label for="concentrateGrade">Concentrate Grade (%)</label>
+                <div class="slider-container">
+                    <input type="range" id="concentrateGrade" min="15" max="35" step="1" value="30">
+                    <div class="value-display" id="concentrateGradeValue">30%</div>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label for="testingParticleSize">Testing Particle Size (microns)</label>
+                <div class="slider-container">
+                    <input type="range" id="testingParticleSize" min="50" max="150" step="5" value="100">
+                    <div class="value-display" id="testingParticleSizeValue">100 μm</div>
                 </div>
             </div>
 
@@ -279,25 +293,6 @@
         </div>
 
         <div class="results" id="results">
-            <div class="comparison-card">
-                <h2 class="section-title">📊 NPV Comparison</h2>
-                <div class="card-grid">
-                    <div class="metric-card">
-                        <div class="metric-label">Without Electrolyzer</div>
-                        <div class="metric-value" id="npv_no">$0</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">With Electrolyzer</div>
-                        <div class="metric-value" id="npv_yes">$0</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">NPV Improvement</div>
-                        <div class="metric-value" id="npv_improvement">$0</div>
-                    </div>
-                </div>
-                <div style="text-align: center; font-size: 1.3em; font-weight: 600; color: #2C4F5C;" id="recommendation"></div>
-            </div>
-
             <div class="card-grid">
                 <div class="comparison-card">
                     <h3 class="section-title">Without Electrolyzer</h3>
@@ -313,9 +308,13 @@
                         <div class="metric-label">Total CAPEX</div>
                         <div class="metric-value" id="capex_no">$0</div>
                     </div>
-                    <div>
+                    <div style="margin-bottom: 15px;">
                         <div class="metric-label">Annual OPEX</div>
                         <div class="metric-value" id="opex_no">$0</div>
+                    </div>
+                    <div>
+                        <div class="metric-label">Cost per Ton Cu</div>
+                        <div class="metric-value" id="cost_per_ton_no">$0</div>
                     </div>
                 </div>
 
@@ -333,15 +332,42 @@
                         <div class="metric-label">Total CAPEX</div>
                         <div class="metric-value" id="capex_yes">$0</div>
                     </div>
-                    <div>
+                    <div style="margin-bottom: 15px;">
                         <div class="metric-label">Annual OPEX</div>
                         <div class="metric-value" id="opex_yes">$0</div>
+                    </div>
+                    <div>
+                        <div class="metric-label">Cost per Ton Cu</div>
+                        <div class="metric-value" id="cost_per_ton_yes">$0</div>
                     </div>
                 </div>
             </div>
 
             <div class="comparison-card">
-                <h3 class="section-title">🔬 Recovery Rates (Without Electrolyzer)</h3>
+                <h2 class="section-title">📊 NPV Comparison</h2>
+                <div class="card-grid">
+                    <div class="metric-card">
+                        <div class="metric-label">Without Electrolyzer</div>
+                        <div class="metric-value" id="npv_no">$0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">With Electrolyzer</div>
+                        <div class="metric-value" id="npv_yes">$0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">NPV Improvement</div>
+                        <div class="metric-value" id="npv_improvement">$0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Cost/Ton Δ</div>
+                        <div class="metric-value" id="cost_per_ton_delta">$0</div>
+                    </div>
+                </div>
+                <div style="text-align: center; font-size: 1.3em; font-weight: 600; color: #2C4F5C;" id="recommendation"></div>
+            </div>
+
+            <div class="comparison-card">
+                <h3 class="section-title">🔬Recovery Rates</h3>
                 <div class="card-grid">
                     <div class="metric-card">
                         <div class="metric-label">Flotation</div>
@@ -395,12 +421,24 @@
                 </table>
             </div>
         </div>
+
+        <div class="footer">
+            <img src="{{ url_for('static', filename='blueshift_logo.png') }}" alt="BlueShift" class="logo">
+        </div>
     </div>
 
     <script>
         // Update slider values in real-time
         document.getElementById('feedGrade').addEventListener('input', function() {
             document.getElementById('feedGradeValue').textContent = this.value + '%';
+        });
+
+        document.getElementById('concentrateGrade').addEventListener('input', function() {
+            document.getElementById('concentrateGradeValue').textContent = this.value + '%';
+        });
+
+        document.getElementById('testingParticleSize').addEventListener('input', function() {
+            document.getElementById('testingParticleSizeValue').textContent = this.value + ' μm';
         });
 
         document.getElementById('targetTonnage').addEventListener('input', function() {
@@ -474,6 +512,8 @@
 
         async function runOptimization() {
             const feedGrade = parseFloat(document.getElementById('feedGrade').value) / 100;
+            const concentrateGrade = parseFloat(document.getElementById('concentrateGrade').value) / 100;
+            const testingParticleSize = parseFloat(document.getElementById('testingParticleSize').value);
             const targetTonnage = parseInt(document.getElementById('targetTonnage').value);
 
             // Show loading, hide results and errors
@@ -490,6 +530,8 @@
                     },
                     body: JSON.stringify({
                         feed_grade: feedGrade,
+                        concentrate_grade: concentrateGrade,
+                        testing_particle_size: testingParticleSize,
                         target_tonnage: targetTonnage,
                         max_iterations: 30
                     })
@@ -507,6 +549,11 @@
                     improvementElem.textContent = formatCurrency(Math.abs(improvement)) + ' (' + data.comparison.npv_improvement_pct.toFixed(1) + '%)';
                     improvementElem.className = 'metric-value ' + (improvement > 0 ? 'positive' : 'negative');
 
+                    const costDelta = data.comparison.cost_per_ton_delta;
+                    const costDeltaElem = document.getElementById('cost_per_ton_delta');
+                    costDeltaElem.textContent = formatCurrency(Math.abs(costDelta));
+                    costDeltaElem.className = 'metric-value ' + (costDelta < 0 ? 'positive' : 'negative');
+
                     document.getElementById('recommendation').textContent = '✓ Recommendation: ' + data.comparison.recommendation;
 
                     // Update financial metrics - Without
@@ -514,12 +561,14 @@
                     document.getElementById('payback_no').textContent = data.without_electrolyzer.payback_years.toFixed(2) + ' years';
                     document.getElementById('capex_no').textContent = formatCurrency(data.without_electrolyzer.total_capex);
                     document.getElementById('opex_no').textContent = formatCurrency(data.without_electrolyzer.total_opex) + '/year';
+                    document.getElementById('cost_per_ton_no').textContent = formatCurrency(data.without_electrolyzer.cost_per_ton) + '/ton';
 
                     // Update financial metrics - With
                     document.getElementById('irr_yes').textContent = formatPercent(data.with_electrolyzer.irr);
                     document.getElementById('payback_yes').textContent = data.with_electrolyzer.payback_years.toFixed(2) + ' years';
                     document.getElementById('capex_yes').textContent = formatCurrency(data.with_electrolyzer.total_capex);
                     document.getElementById('opex_yes').textContent = formatCurrency(data.with_electrolyzer.total_opex) + '/year';
+                    document.getElementById('cost_per_ton_yes').textContent = formatCurrency(data.with_electrolyzer.cost_per_ton) + '/ton';
 
                     // Update recovery rates
                     document.getElementById('rec_flotation_no').textContent = formatPercent(data.without_electrolyzer.recoveries.flotation);

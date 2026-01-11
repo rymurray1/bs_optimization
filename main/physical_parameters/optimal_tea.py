@@ -279,18 +279,22 @@ class OptimalTEA:
         self.flotation = FlotationStage()
 
         # Initialize leaching, solvent extraction, and electrolyzer based on mode
+        # IMPORTANT: SX uses organic solvent (LIX reagent), NOT acid!
+        # Electrolyzer only affects leaching acid costs, not SX solvent costs
         if self.use_electrolyzer:
             self.electrolyzer = ElectrolyzerStage()
             # With electrolyzer: acid cost is $0 (we produce it ourselves)
             # The cost is captured in electrolyzer CAPEX/OPEX
             self.leaching = LeachingStage(acid_price_per_tonne=0, acid_recovery_fraction=0)
-            self.sx = SolventExtractionStage(acid_price=0, acid_loss_fraction=0.01)
-            print(f"[DEBUG] Initialized WITH electrolyzer: acid_price=$0/tonne for both leaching and SX")
+            # SX still needs organic solvent ($5/L) regardless of electrolyzer
+            self.sx = SolventExtractionStage(solvent_price_per_litre=5.0, solvent_loss_fraction=0.01)
+            print(f"[DEBUG] Initialized WITH electrolyzer: leaching acid=$0/tonne, SX solvent=$5/L")
         else:
             # Without electrolyzer: buy acid at market price
-            self.leaching = LeachingStage(acid_price_per_tonne=129, acid_recovery_fraction=0)
-            self.sx = SolventExtractionStage(acid_price=129, acid_loss_fraction=0.01)
-            print(f"[DEBUG] Initialized WITHOUT electrolyzer: acid_price=$129/tonne for both leaching and SX")
+            self.leaching = LeachingStage(acid_price_per_tonne=420, acid_recovery_fraction=0)
+            # SX uses same organic solvent ($5/L) in both cases
+            self.sx = SolventExtractionStage(solvent_price_per_litre=5.0, solvent_loss_fraction=0.01)
+            print(f"[DEBUG] Initialized WITHOUT electrolyzer: leaching acid=$129/tonne, SX solvent=$5/L")
 
         self.ew = ElectrowinningStage()
 
@@ -514,22 +518,15 @@ class OptimalTEA:
         sx_capex = self.sx.calculate_capex(cu_leached_tpa)
         solution_volume_m3 = cu_leached_kg * 0.001  # Estimate solution volume
         sx_opex_dict = self.sx.calculate_opex(cu_extracted_kg, solution_volume_m3)
-        sx_opex = sx_opex_dict['acid_cost']
+        sx_opex = sx_opex_dict['solvent_cost']
 
-        # Electrolyzer costs (if enabled) - calculate AFTER both leaching and SX costs
+        # Electrolyzer costs (if enabled) - calculate AFTER leaching costs
         if self.use_electrolyzer:
-            # Electrolyzer needs to produce acid for BOTH leaching and solvent extraction
-            # Calculate total acid requirement from both stages
+            # Electrolyzer produces acid ONLY for leaching (SX uses organic solvent)
             leaching_acid_tpa = leaching_opex_dict['acid_net_consumption_tpa']
 
-            # Calculate SX acid requirement (convert from litres to tonnes)
-            # acid_losses_litres from SX, convert to kg then tonnes
-            # Assuming sulfuric acid density ~1.84 kg/L
-            sx_acid_litres = sx_opex_dict['acid_losses_litres']
-            sx_acid_tpa = (sx_acid_litres * 1.84) / 1000  # L * kg/L / 1000 = tonnes
-
-            # Total acid requirement for electrolyzer
-            acid_required_tpa = leaching_acid_tpa + sx_acid_tpa
+            # Total acid requirement for electrolyzer (only leaching)
+            acid_required_tpa = leaching_acid_tpa
 
             electrolyzer_capex = self.electrolyzer.calculate_capex(acid_required_tpa)
             electrolyzer_opex_dict = self.electrolyzer.calculate_opex(acid_required_tpa)
@@ -537,7 +534,6 @@ class OptimalTEA:
 
             # Store breakdown for debugging
             electrolyzer_opex_dict['leaching_acid_tpa'] = leaching_acid_tpa
-            electrolyzer_opex_dict['sx_acid_tpa'] = sx_acid_tpa
             electrolyzer_opex_dict['total_acid_tpa'] = acid_required_tpa
         else:
             electrolyzer_capex = 0

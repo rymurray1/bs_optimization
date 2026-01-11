@@ -341,7 +341,7 @@ class LeachingStage:
     Key dependency: Uses concentrate tonnage from flotation recovery.
     """
 
-    def __init__(self, acid_price_per_tonne=129, acid_recovery_fraction=0.92):
+    def __init__(self, acid_price_per_tonne=420, acid_recovery_fraction=0.92):
         """
         Args:
             acid_price_per_tonne: Sulfuric acid price ($/tonne)
@@ -477,16 +477,16 @@ class SolventExtractionStage:
     Key dependency: Uses copper solution from leaching stage.
     """
 
-    def __init__(self, acid_price=129, acid_loss_fraction=0.01):
+    def __init__(self, solvent_price_per_litre=8, solvent_loss_fraction=0.01):
         """
         Args:
             solvent_price_per_litre: Organic extractant price ($/L)
                                     LIX reagents: $3-8/L
-            solvent_losses_fraction: Fraction of solvent lost per cycle (0-1)
+            solvent_loss_fraction: Fraction of solvent lost per cycle (0-1)
                                     Typical: 0.005-0.02 (0.5-2% losses)
         """
-        self.acid_price = acid_price
-        self.acid_loss = acid_loss_fraction
+        self.solvent_price = solvent_price_per_litre
+        self.solvent_loss = solvent_loss_fraction
 
     def calculate_capex(self, copper_leached_tpa):
         """
@@ -516,11 +516,11 @@ class SolventExtractionStage:
 
     def calculate_opex(self, copper_extracted_kg, solution_volume_m3):
         """
-        OPEX = acid makeup cost for solvent extraction
+        OPEX = solvent makeup cost for solvent extraction
 
         Steps:
-        1. Calculate acid inventory from solution volume
-        2. Calculate annual acid losses
+        1. Calculate solvent inventory from solution volume
+        2. Calculate annual solvent losses
         3. Convert to cost
 
         Args:
@@ -528,24 +528,24 @@ class SolventExtractionStage:
             solution_volume_m3: Solution volume processed (m3/year)
 
         Returns:
-            dict with acid cost breakdown
+            dict with solvent cost breakdown
         """
         # Typical O/A ratio is 1:1, so organic volume ≈ aqueous volume
         organic_volume_m3 = solution_volume_m3
         organic_volume_litres = organic_volume_m3 * 1000
 
-        # Annual acid makeup (only replace losses)
-        annual_acid_losses_litres = organic_volume_litres * self.acid_loss
+        # Annual solvent makeup (only replace losses)
+        annual_solvent_losses_litres = organic_volume_litres * self.solvent_loss
 
         # Cost
-        acid_cost = annual_acid_losses_litres * self.acid_price
+        solvent_cost = annual_solvent_losses_litres * self.solvent_price
 
         return {
             'organic_volume_litres': organic_volume_litres,
-            'acid_losses_litres': annual_acid_losses_litres,
-            'acid_losses_fraction': self.acid_loss,
-            'acid_cost': acid_cost,
-            'total': acid_cost
+            'solvent_losses_litres': annual_solvent_losses_litres,
+            'solvent_loss_fraction': self.solvent_loss,
+            'solvent_cost': solvent_cost,
+            'total': solvent_cost
         }
 
     def process(self, copper_leached_kg, K_ex=10, RH=0.2, O_A=1.2, pH=1.1):
