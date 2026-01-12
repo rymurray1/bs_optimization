@@ -1,15 +1,3 @@
-"""
-Optimal Technoeconomic Analysis (TEA) for Copper Production
-
-This module optimizes process parameters across all stages (flotation, leaching,
-solvent extraction, and electrowinning) to minimize total cost while achieving
-a target copper production rate.
-
-Target: Extract X tons of copper (e.g., 10,000 tons/year)
-Given: Feed grade (e.g., 0.58% Cu), Concentrate grade (e.g., 28% Cu)
-Optimize: 22 parameters across 5 process stages to minimize CAPEX + OPEX
-"""
-
 import numpy as np
 from scipy.optimize import differential_evolution, minimize
 from process_cost_integration import (
@@ -19,7 +7,6 @@ from process_cost_integration import (
 from flotation_recovery import flot_rec
 from leaching import leaching_copper_recovery
 from solvent_extraction import solvent_extraction
-from electrowinning import cell_voltage
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -240,32 +227,32 @@ class OptimalTEA:
         # [Grinding (1), Flotation (8), Leaching (6), SX (4), EW (4)]
         self.bounds = [
             # Grinding parameters
-            (50, 150),       # product_size (microns) - feeds into flotation as particle_size
+            (50, 150),       # product_size (microns)
 
-            # Flotation parameters (tightened to realistic industrial ranges)
-            (0.8, 1.2),      # sp_power (kW/m³) - typical industrial range
-            (0.8, 1.5),      # sp_gas_rate (cm/s) - reduced upper limit
-            (10, 50),        # frother_conc (g/l) - corrected to realistic dosage (20-80 ppm)
-            (15, 20),        # ret_time (min) - typical for copper rougher flotation
-            (0.10, 0.20),    # air_fraction - typical industrial range 10-20%
-            (0.15, 0.30),    # slurry_fraction - typical pulp density
-            (40, 70),        # contact_angle (degrees) - typical for copper minerals with collector
-            (100, 250),      # cell_volume (m³) - industrial flotation cell sizes
-            # NOTE: num_cells is now CALCULATED from throughput / cell_volume
+            # Flotation parameters
+            (0.8, 1.2),      # sp_power (kW/m³)
+            (0.8, 1.5),      # sp_gas_rate (cm/s)
+            (10, 50),        # frother_conc (g/l)
+            (15, 20),        # ret_time (min)
+            (0.10, 0.20),    # air_fraction
+            (0.15, 0.30),    # slurry_fraction
+            (40, 70),        # contact_angle (degrees)
+            (100, 250),      # cell_volume (m³)
+            # NOTE: num_cells is CALCULATED from throughput and cell_volume
 
             # Leaching parameters
             (190, 200),      # T (°C)
             (12, 15),        # P_O2 (bar)
-            (75, 80),        # Ea (kJ/mol) - tightened to realistic range
-            (0.6, .8),      # n (reaction order)
+            (75, 80),        # Ea (kJ/mol)
+            (0.6, .8),       # n (reaction order)
             (0.1, 0.3),      # H_plus (mol/L)
             (8, 16),         # leach_time (hours)
 
             # Solvent Extraction parameters
-            (20, 60),        # K_ex (equilibrium constant) - reduced upper bound
-            (0.18, 0.22),    # RH (extractant concentration, M) - reduced upper bound
-            (0.2, 0.45),     # O_A (organic/aqueous ratio) - reduced upper bound
-            (1.3, 2.0),      # pH - increased lower bound (higher pH reduces recovery)
+            (2, 6),          # K_ex (equilibrium constant)
+            (0.05, 0.10),    # RH (extractant concentration, M)
+            (0.08, 0.18),    # O_A (organic/aqueous ratio)
+            (1.8, 2.5),      # pH
 
             # Electrowinning parameters
             (200, 300),      # current_density (A/m²)
@@ -291,7 +278,7 @@ class OptimalTEA:
             print(f"[DEBUG] Initialized WITH electrolyzer: leaching acid=$0/tonne, SX solvent=$5/L")
         else:
             # Without electrolyzer: buy acid at market price
-            self.leaching = LeachingStage(acid_price_per_tonne=420, acid_recovery_fraction=0)
+            self.leaching = LeachingStage(acid_price_per_tonne=400, acid_recovery_fraction=0.5)
             # SX uses same organic solvent ($5/L) in both cases
             self.sx = SolventExtractionStage(solvent_price_per_litre=5.0, solvent_loss_fraction=0.01)
             print(f"[DEBUG] Initialized WITHOUT electrolyzer: leaching acid=$129/tonne, SX solvent=$5/L")
@@ -936,9 +923,9 @@ if __name__ == "__main__":
 
 
     comparison = compare_with_and_without_electrolyzer(
-        target_cu_tons=100000,
-        feed_grade=.006,
-        concentrate_grade=0.28,
+        target_cu_tons=43800,
+        feed_grade=.01,
+        concentrate_grade=0.35,
         maxiter=30
     )
     

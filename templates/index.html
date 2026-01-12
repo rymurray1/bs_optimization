@@ -248,7 +248,6 @@
 <body>
     <div class="container">
         <h1>Copper Production Optimizer</h1>
-
         <div class="input-section">
             <div class="input-group">
                 <label for="feedGrade">Feed Ore Grade (%)</label>
@@ -285,6 +284,22 @@
             <button id="optimizeBtn" onclick="runOptimization()">Optimize Process</button>
         </div>
 
+        <!-- Optimization Impact Section -->
+        <div class="comparison-card" style="background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f0 100%); margin-bottom: 30px;">
+            <h3 class="section-title" style="border-bottom: 2px solid #2C4F5C; color: #1a2f38;">
+                📈 Optimization Impact
+            </h3>
+            <div style="padding: 20px; background: white; border-radius: 10px; margin-top: 15px;">
+                <p style="font-size: 1.1em; line-height: 1.8; color: #333; margin: 0;">
+                    Using optimized parameters againsts an industry benchmark we can see a <strong>19.17% improvement in annual OPEX</strong> driven by improvements in acid, water and energy use.<br>
+                    <strong>Comparison baseline:</strong> U.S. site, 1% feed grade, 35% concentrate, with an expected output of 43,800 tons of iron per year.
+                </p>
+                <!-- <p style="font-size: 0.95em; line-height: 1.6; color: #666; margin-top: 15px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
+                    <strong>Comparison baseline:</strong> 1% feed grade, 35% concentrate, with an expected output of 43,800 tons of iron per year. -->
+                </p>
+            </div>
+        </div>
+
         <div class="error" id="errorMsg"></div>
 
         <div class="loading" id="loading">
@@ -293,6 +308,93 @@
         </div>
 
         <div class="results" id="results">
+            <!-- Section 1: Optimized Operating Parameters -->
+            <div class="comparison-card">
+                <h3 class="section-title">⚙️ Optimized Operating Parameters</h3>
+
+                <div style="text-align: center; margin: 20px 0;">
+                    <img src="{{ url_for('static', filename='fsd_optimization_model.jpg') }}"
+                         alt="FSD Optimization Model"
+                         style="max-width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+                </div>
+
+                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">A) Grinding</h4>
+                <table class="parameters-table">
+                    <tbody id="grinding_params"></tbody>
+                </table>
+
+                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">B) Flotation</h4>
+                <table class="parameters-table">
+                    <tbody id="flotation_params"></tbody>
+                </table>
+
+                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">C) Leaching</h4>
+                <table class="parameters-table">
+                    <tbody id="leaching_params"></tbody>
+                </table>
+
+                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">D) Solvent Extraction</h4>
+                <table class="parameters-table">
+                    <tbody id="sx_params"></tbody>
+                </table>
+
+                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">E) Electrowinning</h4>
+                <table class="parameters-table">
+                    <tbody id="ew_params"></tbody>
+                </table>
+            </div>
+
+            <!-- Section 2: Recovery Rates -->
+            <div class="comparison-card">
+                <h3 class="section-title">🔬 Recovery Rates</h3>
+                <div class="card-grid">
+                    <div class="metric-card">
+                        <div class="metric-label">Flotation</div>
+                        <div class="metric-value" id="rec_flotation_no">0%</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Leaching</div>
+                        <div class="metric-value" id="rec_leaching_no">0%</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Solvent Extraction</div>
+                        <div class="metric-value" id="rec_sx_no">0%</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Electrowinning</div>
+                        <div class="metric-value" id="rec_ew_no">0%</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Overall Recovery</div>
+                        <div class="metric-value" id="rec_overall_no">0%</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 3: NPV Comparison -->
+            <div class="comparison-card">
+                <h2 class="section-title">📊 Net Present Value</h2>
+                <div class="card-grid">
+                    <div class="metric-card">
+                        <div class="metric-label">Without Electrolyzer</div>
+                        <div class="metric-value" id="npv_no">$0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">With Electrolyzer</div>
+                        <div class="metric-value" id="npv_yes">$0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">NPV Improvement</div>
+                        <div class="metric-value" id="npv_improvement">$0</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Cost/Ton Δ</div>
+                        <div class="metric-value" id="cost_per_ton_delta">$0</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 4: With/Without Electrolyzer Comparison -->
             <div class="card-grid">
                 <div class="comparison-card">
                     <h3 class="section-title">Without Electrolyzer</h3>
@@ -341,90 +443,6 @@
                         <div class="metric-value" id="cost_per_ton_yes">$0</div>
                     </div>
                 </div>
-            </div>
-
-            <div class="comparison-card">
-                <h2 class="section-title">📊 NPV Comparison</h2>
-                <div class="card-grid">
-                    <div class="metric-card">
-                        <div class="metric-label">Without Electrolyzer</div>
-                        <div class="metric-value" id="npv_no">$0</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">With Electrolyzer</div>
-                        <div class="metric-value" id="npv_yes">$0</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">NPV Improvement</div>
-                        <div class="metric-value" id="npv_improvement">$0</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Cost/Ton Δ</div>
-                        <div class="metric-value" id="cost_per_ton_delta">$0</div>
-                    </div>
-                </div>
-                <div style="text-align: center; font-size: 1.3em; font-weight: 600; color: #2C4F5C;" id="recommendation"></div>
-            </div>
-
-            <div class="comparison-card">
-                <h3 class="section-title">🔬Recovery Rates</h3>
-                <div class="card-grid">
-                    <div class="metric-card">
-                        <div class="metric-label">Flotation</div>
-                        <div class="metric-value" id="rec_flotation_no">0%</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Leaching</div>
-                        <div class="metric-value" id="rec_leaching_no">0%</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Solvent Extraction</div>
-                        <div class="metric-value" id="rec_sx_no">0%</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Electrowinning</div>
-                        <div class="metric-value" id="rec_ew_no">0%</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-label">Overall Recovery</div>
-                        <div class="metric-value" id="rec_overall_no">0%</div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="comparison-card">
-                <h3 class="section-title">⚙️ Optimized Operating Parameters</h3>
-
-                <div style="text-align: center; margin: 20px 0;">
-                    <img src="{{ url_for('static', filename='fsd_optimization_model.jpg') }}"
-                         alt="FSD Optimization Model"
-                         style="max-width: 100%; height: auto; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
-                </div>
-
-                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">A) Grinding</h4>
-                <table class="parameters-table">
-                    <tbody id="grinding_params"></tbody>
-                </table>
-
-                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">B) Flotation</h4>
-                <table class="parameters-table">
-                    <tbody id="flotation_params"></tbody>
-                </table>
-
-                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">C) Leaching</h4>
-                <table class="parameters-table">
-                    <tbody id="leaching_params"></tbody>
-                </table>
-
-                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">D) Solvent Extraction</h4>
-                <table class="parameters-table">
-                    <tbody id="sx_params"></tbody>
-                </table>
-
-                <h4 style="color: #2C4F5C; margin-top: 20px; margin-bottom: 10px;">E) Electrowinning</h4>
-                <table class="parameters-table">
-                    <tbody id="ew_params"></tbody>
-                </table>
             </div>
         </div>
 
@@ -559,8 +577,6 @@
                     const costDeltaElem = document.getElementById('cost_per_ton_delta');
                     costDeltaElem.textContent = formatCurrency(Math.abs(costDelta));
                     costDeltaElem.className = 'metric-value ' + (costDelta < 0 ? 'positive' : 'negative');
-
-                    document.getElementById('recommendation').textContent = '✓ Recommendation: ' + data.comparison.recommendation;
 
                     // Update financial metrics - Without
                     document.getElementById('irr_no').textContent = formatPercent(data.without_electrolyzer.irr);

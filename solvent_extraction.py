@@ -1,10 +1,11 @@
 import math
 
 upper_lower_bounds = {
-    "K_ex": (10,300),  # Extraction equilibrium constant (dimensionless)
-    "RH": (0.1,.35),  # Extractant concentration (molar)
-    "H_plus": (0.01,0.05),  # Hydrogen ion concentration (molar)
-    "O_A": (.05,1.5)  # Organic/aqueous solution ratio (dimensionless)
+    "K_ex": (2, 6),
+    "RH": (0.05, 0.10),
+    "H_plus": (0.01, 0.05),
+    "O_A": (0.08, 0.18),
+    "pH": (1.8, 2.5)
 }
 
 def solvent_extraction(C_Cu_in_aq, K_ex=10, RH=0.5, O_A=.5, pH=1.1):
@@ -15,21 +16,17 @@ def solvent_extraction(C_Cu_in_aq, K_ex=10, RH=0.5, O_A=.5, pH=1.1):
 
     Args:
         C_Cu_in_aq: Amount of Cu in feed from leaching
-        K_ex: Extraction equilibrium constant (dimensionless)
-        RH: Extractant concentration (molar)
-        H_plus: Hydrogen ion concentration (molar)
-        O_A: Organic/aqueous solution ratio (dimensionless)
+        K_ex: Extraction equilibrium constant
+        RH: Extractant concentration (M)
+        O_A: Organic/aqueous ratio
+        pH: pH of aqueous solution
 
     Returns:
-        float: Output copper concentration (C_Cu_out^aq) in moles
+        float: Copper concentration in raffinate (C_Cu_out^aq)
     """
 
-    H_plus = 10**(-pH)  # convert pH to H+ concentration: [H+] = 10^(-pH)
-
-    # Calculate the denominator term
+    H_plus = 10**(-pH)
     denominator = 1 + K_ex * (RH ** 2) / (H_plus ** 2) * O_A
-
-    # Calculate output concentration
     C_Cu_out_aq = C_Cu_in_aq / denominator
 
     return C_Cu_out_aq

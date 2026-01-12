@@ -1,5 +1,9 @@
 # Copper Production Optimizer
 
+### ACCESS THE OPTIMIZER LIVE ONLINE HERE ###
+
+https://copper-optimizer.fly.dev/
+
 Internally developed physics-based optimization platform for copper extraction processes, combining advanced process modeling with economic analysis to maximize project value.
 
 ## Overview
