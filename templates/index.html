@@ -266,7 +266,7 @@
             </div>
 
             <div class="input-group">
-                <label for="testingParticleSize">Testing Particle Size (microns)</label>
+                <label for="testingParticleSize">Feed Particle Size (microns)</label>
                 <div class="slider-container">
                     <input type="range" id="testingParticleSize" min="50" max="150" step="5" value="100">
                     <div class="value-display" id="testingParticleSizeValue">100 μm</div>
@@ -284,6 +284,8 @@
             <button id="optimizeBtn" onclick="runOptimization()">Optimize Process</button>
         </div>
 
+        <div class="error" id="errorMsg"></div>
+
         <!-- Optimization Impact Section -->
         <div class="comparison-card" style="background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f0 100%); margin-bottom: 30px;">
             <h3 class="section-title" style="text-align: center; font-size: 1.1em; border-bottom: 2px solid #2C4F5C; color: #1a2f38;">
@@ -299,8 +301,6 @@
                 </p>
             </div>
         </div>
-
-        <div class="error" id="errorMsg"></div>
 
         <div class="loading" id="loading">
             <div class="spinner"></div>

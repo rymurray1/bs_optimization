@@ -206,7 +206,7 @@ class OptimalTEA:
     """Optimization framework for copper production process."""
 
     def __init__(self, target_cu_tons=10000, feed_grade=0.0058, concentrate_grade=0.28,
-                 ore_feed_tpa=None, use_electrolyzer=False):
+                 ore_feed_tpa=None, use_electrolyzer=False, feed_particle_size=150):
         """
         Initialize optimization parameters.
 
@@ -216,18 +216,22 @@ class OptimalTEA:
             concentrate_grade: Concentrate copper grade (fraction, e.g., 0.28 = 28%)
             ore_feed_tpa: Fixed ore feed rate (tons/year). If None, will be calculated dynamically.
             use_electrolyzer: If True, use electrolyzer to produce acid (reduces acid cost significantly)
+            feed_particle_size: Feed particle size entering the grinder (microns). Product size must be <= this.
         """
         self.target_cu_tons = target_cu_tons
         self.feed_grade = feed_grade
         self.concentrate_grade = concentrate_grade
         self.fixed_ore_feed = ore_feed_tpa
         self.use_electrolyzer = use_electrolyzer
+        self.feed_particle_size = feed_particle_size
 
         # Define optimization bounds for 23 parameters
         # [Grinding (1), Flotation (8), Leaching (6), SX (4), EW (4)]
         self.bounds = [
             # Grinding parameters
-            (50, 150),       # product_size (microns)
+            # Product size must be <= feed size (grinder reduces particle size)
+            # Minimum is 25 microns (practical lower limit for grinding)
+            (25, feed_particle_size),       # product_size (microns)
 
             # Flotation parameters
             (0.8, 1.2),      # sp_power (kW/m³)
@@ -265,9 +269,7 @@ class OptimalTEA:
         self.grinding = None  # Will be initialized with optimized product_size
         self.flotation = FlotationStage()
 
-        # Initialize leaching, solvent extraction, and electrolyzer based on mode
-        # IMPORTANT: SX uses organic solvent (LIX reagent), NOT acid!
-        # Electrolyzer only affects leaching acid costs, not SX solvent costs
+    
         if self.use_electrolyzer:
             self.electrolyzer = ElectrolyzerStage()
             # With electrolyzer: acid cost is $0 (we produce it ourselves)
@@ -275,13 +277,11 @@ class OptimalTEA:
             self.leaching = LeachingStage(acid_price_per_tonne=0, acid_recovery_fraction=0)
             # SX still needs organic solvent ($5/L) regardless of electrolyzer
             self.sx = SolventExtractionStage(solvent_price_per_litre=5.0, solvent_loss_fraction=0.01)
-            print(f"[DEBUG] Initialized WITH electrolyzer: leaching acid=$0/tonne, SX solvent=$5/L")
         else:
             # Without electrolyzer: buy acid at market price
             self.leaching = LeachingStage(acid_price_per_tonne=400, acid_recovery_fraction=0.5)
             # SX uses same organic solvent ($5/L) in both cases
             self.sx = SolventExtractionStage(solvent_price_per_litre=5.0, solvent_loss_fraction=0.01)
-            print(f"[DEBUG] Initialized WITHOUT electrolyzer: leaching acid=$129/tonne, SX solvent=$5/L")
 
         self.ew = ElectrowinningStage()
 
@@ -527,11 +527,6 @@ class OptimalTEA:
             electrolyzer_opex = 0
             electrolyzer_opex_dict = {}
 
-        # Debug: print first evaluation costs
-        if not hasattr(self, '_first_eval_done'):
-            self._first_eval_done = True
-            print(f"[DEBUG] First evaluation - Leaching OPEX: ${leaching_opex:,.0f}, SX OPEX: ${sx_opex:,.0f}, Electrolyzer OPEX: ${electrolyzer_opex:,.0f}")
-
         # Stage 5: Electrowinning
         cu_plated_kg = cu_extracted_kg * ew_params['ew_recovery']
         cu_plated_tons = cu_plated_kg / 1000
@@ -632,30 +627,35 @@ class OptimalTEA:
         # Return negative penalized NPV (to maximize via minimization)
         return -penalized_npv
 
-    def run_optimization(self, method='differential_evolution', maxiter=100):
+    def run_optimization(self, method='differential_evolution', maxiter=30, verbose=True):
         """
         Run optimization to find parameters that maximize NPV.
 
         Args:
             method: Optimization method ('differential_evolution' or 'minimize')
             maxiter: Maximum iterations
+            verbose: If True, print progress information
 
         Returns:
             dict: Optimization results including optimal parameters and NPV
         """
-        print("="*80)
-        print("COPPER PRODUCTION OPTIMIZATION - MAXIMIZE NPV")
-        print("="*80)
-        print(f"\nEconomic Parameters:")
-        print(f"  Copper price: $13,000/ton")
-        print(f"  Mine lifetime: 25 years")
-        print(f"  Discount rate: 8%")
-        print(f"\nTarget Production: {self.target_cu_tons:,.0f} tons Cu/year")
-        print(f"Feed Grade: {self.feed_grade*100:.2f}%")
-        print(f"Concentrate Grade: {self.concentrate_grade*100:.1f}%")
-        print(f"\nOptimizing {len(self.bounds)} parameters across 5 process stages...")
-        print(f"Method: {method}")
-        print("\nRunning optimization (this may take several minutes)...\n")
+        # Create a unique identifier for this optimization run
+        opt_id = f"[{'ELEC' if self.use_electrolyzer else 'NO-ELEC'}]"
+
+        if verbose:
+            print("="*80)
+            print(f"{opt_id} COPPER PRODUCTION OPTIMIZATION - MAXIMIZE NPV")
+            print("="*80)
+            print(f"\nEconomic Parameters:")
+            print(f"  Copper price: $13,000/ton")
+            print(f"  Mine lifetime: 25 years")
+            print(f"  Discount rate: 8%")
+            print(f"\nTarget Production: {self.target_cu_tons:,.0f} tons Cu/year")
+            print(f"Feed Grade: {self.feed_grade*100:.2f}%")
+            print(f"Concentrate Grade: {self.concentrate_grade*100:.1f}%")
+            print(f"\nOptimizing {len(self.bounds)} parameters across 5 process stages...")
+            print(f"Method: {method}")
+            print(f"\n{opt_id} Running optimization (this may take several minutes)...\n")
 
         if method == 'differential_evolution':
             result = differential_evolution(
@@ -667,7 +667,7 @@ class OptimalTEA:
                 atol=0,
                 seed=42,
                 workers=1,
-                disp=True
+                disp=False  # Set to False to prevent interleaved output when running multiple optimizations
             )
             optimal_params = result.x
             optimal_cost = result.fun
@@ -679,7 +679,7 @@ class OptimalTEA:
                 x0,
                 method='L-BFGS-B',
                 bounds=self.bounds,
-                options={'maxiter': maxiter, 'disp': True}
+                options={'maxiter': maxiter, 'disp': False}  # Set to False to prevent interleaved output
             )
             optimal_params = result.x
             optimal_cost = result.fun
@@ -793,7 +793,7 @@ class OptimalTEA:
 
 
 def compare_with_and_without_electrolyzer(target_cu_tons=10000, feed_grade=0.006,
-                                          concentrate_grade=0.3, maxiter=50):
+                                          concentrate_grade=0.3, maxiter=50, feed_particle_size=150):
     """
     Compare NPV optimization with and without electrolyzer for acid production.
 
@@ -806,6 +806,7 @@ def compare_with_and_without_electrolyzer(target_cu_tons=10000, feed_grade=0.006
     print(f"Target Production: {target_cu_tons:,.0f} tonnes Cu/year")
     print(f"Feed Grade: {feed_grade*100:.2f}%")
     print(f"Concentrate Grade: {concentrate_grade*100:.1f}%")
+    print(f"Feed Particle Size: {feed_particle_size:.0f} microns")
     print("="*80)
 
     # WITHOUT electrolyzer
@@ -814,7 +815,8 @@ def compare_with_and_without_electrolyzer(target_cu_tons=10000, feed_grade=0.006
         target_cu_tons=target_cu_tons,
         feed_grade=feed_grade,
         concentrate_grade=concentrate_grade,
-        use_electrolyzer=False
+        use_electrolyzer=False,
+        feed_particle_size=feed_particle_size
     )
     results_no = optimizer_no.run_optimization(method='differential_evolution', maxiter=maxiter)
     optimizer_no.analyze_results(results_no)
@@ -828,7 +830,8 @@ def compare_with_and_without_electrolyzer(target_cu_tons=10000, feed_grade=0.006
         target_cu_tons=target_cu_tons,
         feed_grade=feed_grade,
         concentrate_grade=concentrate_grade,
-        use_electrolyzer=True
+        use_electrolyzer=True,
+        feed_particle_size=feed_particle_size
     )
     results_yes = optimizer_yes.run_optimization(method='differential_evolution', maxiter=maxiter)
     optimizer_yes.analyze_results(results_yes)

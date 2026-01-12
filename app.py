@@ -45,14 +45,56 @@ def optimize():
         target_tonnage = int(data.get('target_tonnage', 10000))  # Default 10,000 tons/year
         max_iterations = int(data.get('max_iterations', 30))  # Optimization iterations
 
+        # Validate inputs
+        # Check 1: If BOTH feed grade AND concentrate grade are at LOWER extremes (poor ore quality)
+        # Check 2: If all three feed parameters are at extremes (unrealistic scenario)
+
+        feed_grade_low_extreme = feed_grade <= 0.003  # Feed grade <= 0.3%
+        concentrate_grade_low_extreme = concentrate_grade <= 0.18  # Concentrate grade <= 18%
+
+        # If BOTH feed grade and concentrate grade are at their lower extremes, reject
+        if feed_grade_low_extreme and concentrate_grade_low_extreme:
+            return jsonify({
+                'success': False,
+                'error': f'At a feed grade of {feed_grade*100:.2f}% and {int(concentrate_grade*100)}% concentrate grade, ore processing is unlikely to be economically feasible. Please adjust your input parameters to more closely mirror real world feed scenarios.'
+            }), 400
+
+        # Check if all three feed parameters are at extremes (any extreme, not just lower)
+        feed_grade_at_extreme = feed_grade <= 0.0024 or feed_grade >= 0.0095  # <= 0.24% or >= 0.95%
+        concentrate_grade_at_extreme = concentrate_grade <= 0.16 or concentrate_grade >= 0.33  # <= 16% or >= 33%
+        testing_size_at_extreme = testing_particle_size <= 55 or testing_particle_size >= 140  # <= 55 or >= 140 microns
+
+        if feed_grade_at_extreme and concentrate_grade_at_extreme and testing_size_at_extreme:
+            extreme_params = []
+            if feed_grade <= 0.0024:
+                extreme_params.append(f'Feed Grade of {feed_grade*100:.2f}%')
+            elif feed_grade >= 0.0095:
+                extreme_params.append(f'Feed Grade of {feed_grade*100:.2f}%')
+
+            if concentrate_grade <= 0.16:
+                extreme_params.append(f'Concentrate Grade of {int(concentrate_grade*100)}%')
+            elif concentrate_grade >= 0.33:
+                extreme_params.append(f'Concentrate Grade of {int(concentrate_grade*100)}%')
+
+            if testing_particle_size <= 55:
+                extreme_params.append(f'Feed Size of {int(testing_particle_size)} microns')
+            elif testing_particle_size >= 140:
+                extreme_params.append(f'Feed Size of {int(testing_particle_size)} microns')
+
+            return jsonify({
+                'success': False,
+                'error': f'This is an unlikely feed scenario. {", ".join(extreme_params)}. Please adjust your input parameters to more closely mirror real world feed scenarios.'
+            }), 400
+
         # Run optimization WITHOUT electrolyzer
         optimizer_no = OptimalTEA(
             target_cu_tons=target_tonnage,
             feed_grade=feed_grade,
             concentrate_grade=concentrate_grade,
-            use_electrolyzer=False
+            use_electrolyzer=False,
+            feed_particle_size=testing_particle_size
         )
-        results_no = optimizer_no.run_optimization(method='differential_evolution', maxiter=max_iterations)
+        results_no = optimizer_no.run_optimization(method='differential_evolution', maxiter=max_iterations, verbose=False)
         result_no = results_no['result']
 
         # Calculate financial metrics
@@ -66,9 +108,10 @@ def optimize():
             target_cu_tons=target_tonnage,
             feed_grade=feed_grade,
             concentrate_grade=concentrate_grade,
-            use_electrolyzer=True
+            use_electrolyzer=True,
+            feed_particle_size=testing_particle_size
         )
-        results_yes = optimizer_yes.run_optimization(method='differential_evolution', maxiter=max_iterations)
+        results_yes = optimizer_yes.run_optimization(method='differential_evolution', maxiter=max_iterations, verbose=False)
         result_yes = results_yes['result']
 
         # Calculate financial metrics
