@@ -240,7 +240,7 @@ class OptimalTEA:
             (15, 20),        # ret_time (min)
             (0.10, 0.20),    # air_fraction
             (0.15, 0.30),    # slurry_fraction
-            (40, 70),        # contact_angle (degrees)
+            (20, 45),        # contact_angle (degrees)
             (100, 250),      # cell_volume (m³)
             # NOTE: num_cells is CALCULATED from throughput and cell_volume
 
@@ -253,9 +253,9 @@ class OptimalTEA:
             (8, 16),         # leach_time (hours)
 
             # Solvent Extraction parameters
-            (2, 6),          # K_ex (equilibrium constant)
+            (2, 3),          # K_ex (equilibrium constant)
             (0.05, 0.10),    # RH (extractant concentration, M)
-            (0.08, 0.18),    # O_A (organic/aqueous ratio)
+            (1, 1.2),    # O_A (organic/aqueous ratio)
             (1.8, 2.5),      # pH
 
             # Electrowinning parameters
@@ -926,9 +926,8 @@ if __name__ == "__main__":
 
 
     comparison = compare_with_and_without_electrolyzer(
-        target_cu_tons=100000,
+        target_cu_tons=10000,
         feed_grade=.006,
         concentrate_grade=0.3,
         maxiter=30
     )
-    
