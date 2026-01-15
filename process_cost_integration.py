@@ -15,7 +15,7 @@ from tea import (
     lang_factor, inflation_factor,
     equipment_cost,
     flotation_work, water_flow_rate_multiplier,
-    residence_time_flotation, cfa_density, froth_factor_excess,
+    residence_time_flotation, feed_density, froth_factor_excess,
     seconds_per_op_year, residence_time_flotation_sec,
     water_cost, flotation_volume_required, flotation_rates,
     sl_ratio, acid_concentration, sulfuric_acid_density,
@@ -488,31 +488,33 @@ class SolventExtractionStage:
         self.solvent_price = solvent_price_per_litre
         self.solvent_loss = solvent_loss_fraction
 
-    def calculate_capex(self, copper_leached_tpa):
+    def calculate_capex(self, leach_concentrate_tpa):
         """
         CAPEX = mixer-settler equipment cost
 
         Uses atmospheric tank cost basis as proxy for mixer-settlers.
+        Calculates based on total throughput (aqueous + organic streams).
 
         Steps:
-        1. Estimate volume from copper throughput
+        1. Calculate total throughput based on O/A ratio
         2. Scale cost using power-law
         3. Apply inflation and lang factors
 
         Args:
-            copper_leached_tpa: Copper from leaching (tonnes/year)
+            leach_concentrate_tpa: Concentrate from leaching (tonnes/year)
         """
-        # Estimate volume needed (rough estimate: 0.1 m3 per tpa Cu)
-        # This is a placeholder - ideally would calculate from residence time
-        volume_required = copper_leached_tpa * 0.1
+        # Feed to solvent ratio (O/A = 1 means equal organic and aqueous volumes)
+        oa_ratio = 1
+        aqueous_tpa = leach_concentrate_tpa
+        organic_tpa = aqueous_tpa * oa_ratio
+        total_throughput = aqueous_tpa + organic_tpa
 
-        # Use atmospheric tank basis as proxy
-        tank_cost = equipment_cost('atm_tank', volume_required)
+        # CAPEX using power-law scaling
+        # From Perry's Table 9-50: Atm Tank basis
+        sx_capex = 9300 * ((total_throughput / 0.38) ** 0.53)
+        sx_capex = sx_capex * inflation_factor * lang_factor
 
-        # Apply factors
-        installed_cost = tank_cost * inflation_factor * lang_factor
-
-        return installed_cost
+        return sx_capex
 
     def calculate_opex(self, copper_extracted_kg, solution_volume_m3):
         """
@@ -626,13 +628,13 @@ class ElectrowinningStage:
 
     def calculate_capex(self, copper_feed_kg_per_year, cu_concentration_kg_per_m3=45, residence_time_hours=36):
         """
-        CAPEX = electrowinning tank equipment cost
+        CAPEX = electrowinning cell equipment cost
 
         Steps:
-        1. Calculate solution volume from copper feed and electrolyte concentration
-        2. Calculate required tank volume from residence time
-        3. Apply cost equation: Cost = 9300 * ((volume / 0.38)^0.53)
-        4. Apply inflation and lang factors
+        1. Convert copper feed to molar flow rate (mol/s)
+        2. Calculate required current using Faraday's law: I = n*F*molar_rate
+        3. Calculate electrode area: area = current / current_density
+        4. Scale CAPEX based on electrode area
 
         Args:
             copper_feed_kg_per_year: Copper from SX (kg/year)
@@ -642,27 +644,28 @@ class ElectrowinningStage:
         Returns:
             Installed CAPEX ($)
         """
-        # Solution flow rate based on copper feed from SX
-        # Solution volume (m3/year) = copper mass (kg/year) / concentration (kg/m3)
-        solution_volume_m3_per_year = copper_feed_kg_per_year / cu_concentration_kg_per_m3
+        # Step 1: Convert copper feed to molar flow rate
+        # copper_feed_kg_per_year (kg/year) → mol/s
+        MW_Cu = 63.546  # g/mol
+        copper_mol_per_year = (copper_feed_kg_per_year * 1000) / MW_Cu  # kg → g → mol
+        copper_mol_per_second = copper_mol_per_year / seconds_per_op_year  # mol/s
 
-        # Convert to hourly flow rate
-        solution_flow_m3_per_hour = solution_volume_m3_per_year / hours_per_op_year
+        z = 2  # electrons per Cu²⁺
+        F = 96485  # C/mol (Faraday constant)
+        req_current_amps = copper_mol_per_second * z * F  # Amps
 
-        # Tank volume required based on residence time
-        volume_required = solution_flow_m3_per_hour * residence_time_hours
+        # Calculate electrode area required
+        current_density = 4000  # A/m² (higher density for industrial EW)
+        area_req_m2 = req_current_amps / current_density  # m²
 
-        # Equipment cost using power-law equation
-        # Cost = 9300 * ((volume / 0.38)^0.53)
-        basis_volume = 0.38  # m3
-        cost_coefficient = 9300  # $
-        exponent = 0.53
-        equipment_cost = cost_coefficient * ((volume_required / basis_volume) ** exponent)
+        # CAPEX scaling based on electrode area
+        basis_area_m2 = 94  # m² basis
+        cost_coefficient = 383000  # $ at basis
+        ew_exponent = 0.81
+        ew_capex = cost_coefficient * ((area_req_m2 / basis_area_m2) ** ew_exponent)
+        ew_capex = ew_capex * lang_factor * inflation_factor
 
-        # Apply inflation and lang factors
-        installed_cost = equipment_cost * lang_factor
-
-        return installed_cost
+        return ew_capex
 
     def calculate_opex(self, copper_plated_tpa, E_eq=0.34, eta_cath=0.1, eta_anode=0.3, IR=0.5):
         """

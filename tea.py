@@ -77,7 +77,7 @@ motor_large = {
 # FROTH FLOTATION PARAMETERS (Rows 95-128)
 flotation_work = 20  # kWh/t (assumed); < 10 for ores
 water_flow_rate_multiplier = 4  # x Feed Flow Rate
-cfa_density = 2.7  # tonnes/m3 (typical copper ore density, changed from 0.0015 coal fly ash)
+feed_density = 2.7  # tonnes/m3 (typical copper ore density, changed from 0.0015 coal fly ash)
 froth_factor_excess = 0.2  # Assumed excess
 residence_time_flotation = 15  # minutes
 
@@ -171,7 +171,7 @@ def flotation_rates(throughput_tpa):
             - 'water_rate': Water volumetric flow rate (m3/s)
             - 'total_rate': Total volumetric flow rate (m3/s)
     """
-    feed_rate = throughput_tpa / cfa_density / seconds_per_op_year
+    feed_rate = throughput_tpa / feed_density / seconds_per_op_year
     water_rate = water_flow_rate_multiplier * feed_rate
     total_rate = feed_rate + water_rate
 
@@ -218,14 +218,14 @@ def leaching_rates(throughput_tpa, pb_loss_ppm=20000, density_kg_m3=None):
         density_kg_m3 = sulfuric_acid_density
 
     # Calculate feed rate from flotation
-    feed_rate = throughput_tpa / cfa_density / seconds_per_op_year
+    feed_rate = throughput_tpa / feed_density / seconds_per_op_year
 
     # Calculate solids rate (accounting for Pb loss)
     loss_fraction = pb_loss_ppm / 1000000
     solids_rate = feed_rate * (1 - loss_fraction)
 
     # Calculate acid solution rate (liquid phase in slurry)
-    solids_mass_rate = solids_rate * cfa_density * 1000  # kg/s
+    solids_mass_rate = solids_rate * feed_density * 1000  # kg/s
     solution_mass_rate = ((1 - sl_ratio) / sl_ratio) * solids_mass_rate  # kg/s of acid solution
     solution_rate = solution_mass_rate / density_kg_m3  # m3/s of acid solution
 
@@ -279,7 +279,7 @@ def solvent_exchange_rate(throughput_tpa, pb_zc_loss_ppm=50000, density_kg_m3=No
     acid_rate = leaching_data['acid_rate']
 
     # Calculate feed rate from flotation
-    feed_rate = throughput_tpa / cfa_density / seconds_per_op_year
+    feed_rate = throughput_tpa / feed_density / seconds_per_op_year
 
     # Apply losses
     loss_fraction = pb_zc_loss_ppm / 1000000

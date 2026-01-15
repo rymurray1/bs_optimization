@@ -259,7 +259,7 @@ class OptimalTEA:
             (1.8, 2.5),      # pH
 
             # Electrowinning parameters
-            (200, 300),      # current_density (A/m²)
+            (4000,4000),      # current_density (A/m²)
             (0.90, 0.98),    # current_efficiency
             (1.8, 2.2),      # cell_potential (V)
             (0.93, 0.98)     # ew_recovery
@@ -279,7 +279,7 @@ class OptimalTEA:
             self.sx = SolventExtractionStage(solvent_price_per_litre=5.0, solvent_loss_fraction=0.01)
         else:
             # Without electrolyzer: buy acid at market price
-            self.leaching = LeachingStage(acid_price_per_tonne=400, acid_recovery_fraction=0.5)
+            self.leaching = LeachingStage(acid_price_per_tonne=420, acid_recovery_fraction=0.5)
             # SX uses same organic solvent ($5/L) in both cases
             self.sx = SolventExtractionStage(solvent_price_per_litre=5.0, solvent_loss_fraction=0.01)
 
@@ -539,7 +539,7 @@ class OptimalTEA:
         ew_opex = ew_opex_dict['total']
 
         # Ore feed cost (mining/processing raw material)
-        ore_cost_per_tonne = 10  # $/tonne of ore feed
+        ore_cost_per_tonne = 15  # $/tonne of ore feed
         ore_feed_opex = ore_feed_tpa * ore_cost_per_tonne
 
         # Total costs
@@ -926,9 +926,9 @@ if __name__ == "__main__":
 
 
     comparison = compare_with_and_without_electrolyzer(
-        target_cu_tons=43800,
-        feed_grade=.01,
-        concentrate_grade=0.35,
+        target_cu_tons=100000,
+        feed_grade=.006,
+        concentrate_grade=0.3,
         maxiter=30
     )
     
