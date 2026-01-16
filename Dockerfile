@@ -25,5 +25,7 @@ COPY . .
 # Expose port
 EXPOSE 8080
 
-# Run the application
-CMD ["python", "app.py"]
+# Run the application with Gunicorn (production WSGI server)
+# --timeout 300 for long-running optimization requests
+# --workers 2 for handling concurrent requests
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--timeout", "300", "--workers", "2", "app:app"]
