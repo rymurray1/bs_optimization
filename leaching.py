@@ -77,7 +77,7 @@ def leaching_copper_recovery(Ea, T, P_O2, n, H_plus, MFeS2, X_Cu, Phi=.1, k0=500
     t_span = (0, leach_time * 3600)
 
     solution = solve_ivp(copper_leaching_rate, t_span, X_Cu_initial,
-                        events=max_conversion, dense_output=True)
+                        events=max_conversion, dense_output=False)
 
     X_Cu_final = min(solution.y[0][-1], 1.0)  # Cap at 100%
 

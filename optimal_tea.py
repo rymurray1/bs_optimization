@@ -668,7 +668,7 @@ class OptimalTEA:
                 self.objective_function,
                 self.bounds,
                 maxiter=maxiter,
-                popsize=15,
+                popsize=10,
                 tol=0.01,
                 atol=0,
                 seed=42,
