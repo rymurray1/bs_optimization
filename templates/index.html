@@ -538,30 +538,11 @@
             }
         }
 
-        function resetResults() {
-            // Clear all metric values
-            const defaultValues = {
-                'npv_no': '$0', 'npv_yes': '$0', 'npv_improvement': '$0', 'cost_per_ton_delta': '$0',
-                'irr_no': '0%', 'irr_yes': '0%',
-                'payback_no': '0 years', 'payback_yes': '0 years',
-                'capex_no': '$0', 'capex_yes': '$0',
-                'opex_no': '$0', 'opex_yes': '$0',
-                'cost_per_ton_no': '$0', 'cost_per_ton_yes': '$0',
-                'rec_flotation_no': '0%', 'rec_leaching_no': '0%', 'rec_sx_no': '0%', 'rec_ew_no': '0%', 'rec_overall_no': '0%'
-            };
-            for (const [id, value] of Object.entries(defaultValues)) {
-                const elem = document.getElementById(id);
-                if (elem) {
-                    elem.textContent = value;
-                    elem.className = 'metric-value';
-                }
-            }
-            // Clear parameter tables
-            ['grinding_params', 'flotation_params', 'leaching_params', 'sx_params', 'ew_params'].forEach(id => {
-                const elem = document.getElementById(id);
-                if (elem) elem.innerHTML = '';
-            });
-        }
+        // Store the original results HTML on page load for clean resets
+        let originalResultsHTML = null;
+        document.addEventListener('DOMContentLoaded', function() {
+            originalResultsHTML = document.getElementById('results').innerHTML;
+        });
 
         async function runOptimization() {
             const feedGrade = parseFloat(document.getElementById('feedGrade').value) / 100;
@@ -569,10 +550,15 @@
             const testingParticleSize = parseFloat(document.getElementById('testingParticleSize').value);
             const targetTonnage = parseInt(document.getElementById('targetTonnage').value);
 
-            // Reset previous results and show loading
-            resetResults();
+            // Complete reset: restore original HTML to wipe all previous data
+            const resultsContainer = document.getElementById('results');
+            if (originalResultsHTML) {
+                resultsContainer.innerHTML = originalResultsHTML;
+            }
+
+            // Hide results and error, show loading
+            resultsContainer.style.display = 'none';
             document.getElementById('loading').style.display = 'block';
-            document.getElementById('results').style.display = 'none';
             document.getElementById('errorMsg').style.display = 'none';
             document.getElementById('optimizeBtn').disabled = true;
 

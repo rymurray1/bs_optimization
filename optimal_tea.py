@@ -932,7 +932,7 @@ if __name__ == "__main__":
 
 
     comparison = compare_with_and_without_electrolyzer(
-        target_cu_tons=1000000,
+        target_cu_tons=100000,
         feed_grade=.0055,
         concentrate_grade=0.25,
         maxiter=30
