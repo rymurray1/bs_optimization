@@ -49,7 +49,7 @@ def optimize():
         # Check 1: If BOTH feed grade AND concentrate grade are at LOWER extremes (poor ore quality)
         # Check 2: If all three feed parameters are at extremes (unrealistic scenario)
 
-        feed_grade_low_extreme = feed_grade <= 0.003  # Feed grade <= 0.3%
+        feed_grade_low_extreme = feed_grade <= 0.0028  # Feed grade <= 0.3%
         concentrate_grade_low_extreme = concentrate_grade <= 0.18  # Concentrate grade <= 18%
 
         # If BOTH feed grade and concentrate grade are at their lower extremes, reject
@@ -60,9 +60,9 @@ def optimize():
             }), 400
 
         # Check if all three feed parameters are at extremes (any extreme, not just lower)
-        feed_grade_at_extreme = feed_grade <= 0.0024 or feed_grade >= 0.0095  # <= 0.24% or >= 0.95%
+        feed_grade_at_extreme = feed_grade <= 0.0029 or feed_grade >= 0.007  # <= 0.24% or >= 0.95%
         concentrate_grade_at_extreme = concentrate_grade <= 0.16 or concentrate_grade >= 0.33  # <= 16% or >= 33%
-        testing_size_at_extreme = testing_particle_size <= 55 or testing_particle_size >= 140  # <= 55 or >= 140 microns
+        testing_size_at_extreme = testing_particle_size <= 55  # <= 55 or >= 140 microns
 
         if feed_grade_at_extreme and concentrate_grade_at_extreme and testing_size_at_extreme:
             extreme_params = []
@@ -205,6 +205,8 @@ def optimize():
         return jsonify(response)
 
     except Exception as e:
+        # if e in '''"Error: Unexpected token 'I', ..."112,"irr":Infinity,""... is not valid JSON"''':
+        #     return "This is not an economical "
         return jsonify({
             'success': False,
             'error': str(e)

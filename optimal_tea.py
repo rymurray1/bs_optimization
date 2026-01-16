@@ -206,7 +206,7 @@ class OptimalTEA:
     """Optimization framework for copper production process."""
 
     def __init__(self, target_cu_tons=10000, feed_grade=0.0058, concentrate_grade=0.28,
-                 ore_feed_tpa=None, use_electrolyzer=False, feed_particle_size=150):
+                 ore_feed_tpa=None, use_electrolyzer=False, feed_particle_size=1000):
         """
         Initialize optimization parameters.
 
@@ -238,31 +238,31 @@ class OptimalTEA:
             (0.8, 1.5),      # sp_gas_rate (cm/s)
             (10, 50),        # frother_conc (g/l)
             (15, 20),        # ret_time (min)
-            (0.10, 0.20),    # air_fraction
+            (0.10, 0.25),    # air_fraction
             (0.15, 0.30),    # slurry_fraction
-            (20, 45),        # contact_angle (degrees)
+            (20, 55),        # contact_angle (degrees)
             (100, 250),      # cell_volume (m³)
             # NOTE: num_cells is CALCULATED from throughput and cell_volume
 
             # Leaching parameters
-            (190, 200),      # T (°C)
+            (190, 190),      # T (°C)
             (12, 15),        # P_O2 (bar)
-            (75, 80),        # Ea (kJ/mol)
-            (0.6, .8),       # n (reaction order)
+            (71.05, 90),        # Ea (kJ/mol)
+            (0.5, .6),       # n (reaction order)
             (0.1, 0.3),      # H_plus (mol/L)
-            (8, 16),         # leach_time (hours)
+            (2, 12),         # leach_time (hours)
 
             # Solvent Extraction parameters
             (2, 3),          # K_ex (equilibrium constant)
             (0.05, 0.10),    # RH (extractant concentration, M)
-            (1, 1.2),    # O_A (organic/aqueous ratio)
-            (1.8, 2.5),      # pH
+            (.8, 1.0),    # O_A (organic/aqueous ratio)
+            (1.5, 1.8),      # pH
 
             # Electrowinning parameters
             (4000,4000),      # current_density (A/m²)
             (0.90, 0.98),    # current_efficiency
             (1.8, 2.2),      # cell_potential (V)
-            (0.93, 0.98)     # ew_recovery
+            (0.8, 0.98)     # ew_recovery
         ]
 
         # Initialize process stage objects (grinding will be updated with optimized params)
@@ -347,7 +347,7 @@ class OptimalTEA:
         # SX recovery estimate (from equilibrium)
         H_plus = 10**(-sx_params['pH'])
         denominator = 1 + sx_params['K_ex'] * (sx_params['RH'] ** 2) / (H_plus ** 2) * sx_params['O_A']
-        sx_recovery_est = max(0.01, min(0.99, 1 - (1 / denominator)))  # Bound between 1-99%
+        sx_recovery_est = max(0.01, min(0.90, 1 - (1 / denominator)))  # Bound between 1-99%
 
         # EW recovery (from parameters)
         ew_recovery_est = ew_params['ew_recovery']
@@ -414,8 +414,14 @@ class OptimalTEA:
         flotation_params['num_cells'] = max(1, num_cells_required)
 
         # Prepare flotation function inputs (from flotation_recovery.py)
-        fitting_params = {'b': 2, 'alpha': 0.05, 'coverage': 0.525,
-                         'bubble_f': 0.825, 'detach_f': 0.25, 'bulk_zone': 0.7}
+        fitting_params = {
+            'b': 2,
+            'alpha': 0.08,
+            'coverage': 0.525,  
+            'bubble_f': 0.825,
+            'detach_f': 0.7,
+            'bulk_zone': 0.5
+        }
         flot_constants = {'specific_gravity': 4.2, 'grade': self.concentrate_grade, 'permitivity': 8.854e-12,
                          'dielectric': 80, 'pe': 4, 'cell_area': 200, 'bbl_ratio': 10,
                          'feed_tonnage': ore_feed_tpa}
@@ -440,7 +446,7 @@ class OptimalTEA:
         flotation_recovery_raw = flotation_result[0]  # Extract recovery from tuple
 
         # Cap flotation recovery at 95% (physically realistic maximum)
-        flotation_recovery = min(flotation_recovery_raw, 0.87)
+        flotation_recovery = min(flotation_recovery_raw, 0.95)
 
         cu_in_concentrate_kg = cu_in_feed_kg * flotation_recovery
         concentrate_tpa = (cu_in_concentrate_kg / 1000) / self.concentrate_grade
@@ -616,8 +622,8 @@ class OptimalTEA:
 
         # Quadratic penalty to heavily discourage deviation
         # $50M per ton deviation + $10M per ton^2 for exponential discouragement
-        linear_penalty = production_deviation * 50e6
-        quadratic_penalty = (production_deviation ** 2) * 10e6
+        linear_penalty = production_deviation * 5e11
+        quadratic_penalty = (production_deviation ** 2) * 5e11
 
         total_penalty = linear_penalty + quadratic_penalty
 
@@ -926,8 +932,8 @@ if __name__ == "__main__":
 
 
     comparison = compare_with_and_without_electrolyzer(
-        target_cu_tons=10000,
-        feed_grade=.006,
+        target_cu_tons=100000,
+        feed_grade=.004,
         concentrate_grade=0.3,
         maxiter=30
     )

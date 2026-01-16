@@ -407,7 +407,7 @@ class LeachingStage:
         stoichiometric_acid_tonnes = stoichiometric_acid_kg / 1000
 
         # Net consumption after recovery (only makeup acid needed)
-        net_acid_tonnes = stoichiometric_acid_tonnes * (1 - self.acid_recovery)
+        net_acid_tonnes = stoichiometric_acid_tonnes #* (1 - self.acid_recovery)
 
         # Cost (only pay for makeup acid, not recycled acid)
         acid_cost = net_acid_tonnes * self.acid_price
@@ -612,7 +612,7 @@ class ElectrowinningStage:
     Key dependency: Uses purified copper solution from SX stage.
     """
 
-    def __init__(self, current_density=250, current_efficiency=0.95, cell_cost_per_m2=2000):
+    def __init__(self, current_density=250, current_efficiency=0.9, cell_cost_per_m2=5000):
         """
         Args:
             current_density: Current density (A/m2), typical: 200-300 A/m2
@@ -667,7 +667,7 @@ class ElectrowinningStage:
 
         return ew_capex
 
-    def calculate_opex(self, copper_plated_tpa, E_eq=0.34, eta_cath=0.1, eta_anode=0.3, IR=0.5):
+    def calculate_opex(self, copper_plated_tpa, E_eq=0.34, n_cath=0.1, n_anode=0.3, IR=0.5):
         """
         OPEX = annual power cost for electrowinning
 
@@ -680,8 +680,8 @@ class ElectrowinningStage:
         Args:
             copper_plated_tpa: Copper production rate (tonnes/year)
             E_eq: Equilibrium potential (V), default 0.34 V for Cu
-            eta_cath: Cathode overpotential (V), typical 0.1 V
-            eta_anode: Anode overpotential (V), typical 0.3 V
+            n_cath: Cathode overpotential (V), typical 0.1 V
+            n_anode: Anode overpotential (V), typical 0.3 V
             IR: Resistance losses (V), typical 0.5 V
 
         Returns:
@@ -701,7 +701,7 @@ class ElectrowinningStage:
         required_current = (copper_kg_per_year * 1000 * n * F) / (operating_seconds * MW_Cu * self.current_efficiency)
 
         # Cell voltage
-        V_cell = cell_voltage(E_eq, eta_cath, eta_anode, IR)
+        V_cell = cell_voltage(E_eq, n_cath, n_anode, IR)
 
         # Power (Watts)
         power_watts = required_current * V_cell

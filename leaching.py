@@ -111,10 +111,93 @@ def calculate_acid_consumption(Cu_recovered_kg):
         "acid_per_kg_cu": acid_stoich_ratio,
         "Cu_recovered_kg": Cu_recovered_kg
     }
+feed_density = 2.7
+seconds_per_op_year = 28382400
+sulfuric_acid_density = 1380
+sl_ratio = .05
+acid_concentration = 0.15 
+
+def leaching_rates(throughput_tpa, pb_loss_ppm=20000, density_kg_m3=None):
+    """
+    Calculate all leaching flow rates.
+
+    Args:
+        throughput_tpa: Throughput in tonnes per annum
+        pb_loss_ppm: Lead loss in ppm (default 20000 from element data)
+        density_kg_m3: Acid density (default: nitric_acid_density)
+
+    Returns:
+        dict with keys:
+            - 'solids_rate': Solids volumetric flow rate (m3/s)
+            - 'acid_rate': Acid volumetric flow rate (m3/s) - actual pure acid
+            - 'solution_rate': Acid solution volumetric flow rate (m3/s)
+            - 'total_rate': Total volumetric flow rate (m3/s)
+    """
+    if density_kg_m3 is None:
+        density_kg_m3 = sulfuric_acid_density
+
+    # Calculate feed rate from flotation
+    feed_rate = throughput_tpa / feed_density / seconds_per_op_year
+
+    # Calculate solids rate (accounting for Pb loss)
+    loss_fraction = pb_loss_ppm / 1000000
+    solids_rate = feed_rate * (1 - loss_fraction)
+
+    # Calculate acid solution rate (liquid phase in slurry)
+    solids_mass_rate = solids_rate * feed_density * 1000  # kg/s
+    solution_mass_rate = ((1 - sl_ratio) / sl_ratio) * solids_mass_rate  # kg/s of acid solution
+    solution_rate = solution_mass_rate / density_kg_m3  # m3/s of acid solution
+
+    # Calculate actual acid consumption (only the acid in the solution, not the water)
+    acid_mass_rate = solution_mass_rate * acid_concentration  # kg/s of pure acid
+    acid_rate = acid_mass_rate / density_kg_m3  # m3/s of pure acid equivalent
+
+    # Calculate total rate
+    total_rate = solids_rate + solution_rate
+
+    return {
+        'solids_rate': solids_rate,
+        'acid_rate': acid_rate,  # Pure acid consumption
+        'solution_rate': solution_rate,  # Total acid solution volume
+        'total_rate': total_rate
+    }
+
+def calculate_capex(self, concentrate_tpa, leach_time=None):
+    """
+    CAPEX = atmospheric tank cost
+
+    Steps:
+    1. Calculate required tank volume from concentrate throughput and leach time
+    2. Scale cost using power-law
+    3. Apply inflation and lang factors
+
+    Args:
+        concentrate_tpa: Concentrate throughput (NOT ore feed!)
+        leach_time: Leaching time (hours) - if None, uses default from tea.py
+    """
+    # Calculate volume based on leach time
+
+    leach_time_sec = leach_time * 3600  # hours to seconds
+
+    rates = leaching_rates(concentrate_tpa)
+    volume_required = rates['total_rate'] * leach_time_sec
+
+    # Equipment cost with power-law scaling
+    basis = 9300
+    vol_val = .38
+    exponent = .53
+    equipment_cost = basis*((volume_required / vol_val)**exponent)
+
+    tank_cost = equipment_cost('atm_tank', volume_required)
+
+    # Apply factors
+    installed_cost = tank_cost * inflation_factor * lang_factor
+
+    return installed_cost
 
 if __name__ == "__main__":
     print("Testing leaching_copper_recovery:")
-    X_Cu_final, solution = leaching_copper_recovery(Ea=80, T=190, P_O2=12, n=0.75, H_plus=0.2, MFeS2=0.5, X_Cu=0)
+    X_Cu_final, solution = leaching_copper_recovery(Ea=75, T=190, P_O2=12, n=0.75, H_plus=0.2, MFeS2=0.5, X_Cu=0)
     print(f"Final copper recovery: {X_Cu_final:.4f} ({X_Cu_final*100:.2f}%)")
 
     print("\nTesting calculate_acid_consumption:")

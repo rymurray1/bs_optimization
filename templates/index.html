@@ -252,16 +252,16 @@
             <div class="input-group">
                 <label for="feedGrade">Feed Ore Grade (%)</label>
                 <div class="slider-container">
-                    <input type="range" id="feedGrade" min="0.2" max="1.0" step="0.01" value="0.6">
-                    <div class="value-display" id="feedGradeValue">0.6%</div>
+                    <input type="range" id="feedGrade" min="0.25" max="0.8" step="0.01" value="0.55">
+                    <div class="value-display" id="feedGradeValue">0.55%</div>
                 </div>
             </div>
 
             <div class="input-group">
                 <label for="concentrateGrade">Concentrate Grade (%)</label>
                 <div class="slider-container">
-                    <input type="range" id="concentrateGrade" min="15" max="35" step="1" value="30">
-                    <div class="value-display" id="concentrateGradeValue">30%</div>
+                    <input type="range" id="concentrateGrade" min="15" max="40" step="1" value="20">
+                    <div class="value-display" id="concentrateGradeValue">20%</div>
                 </div>
             </div>
 
@@ -276,8 +276,8 @@
             <div class="input-group">
                 <label for="targetTonnage">Target Copper Production (tons/year)</label>
                 <div class="slider-container">
-                    <input type="range" id="targetTonnage" min="1000" max="100000" step="1000" value="10000">
-                    <div class="value-display" id="targetTonnageValue">10,000 tons/year</div>
+                    <input type="range" id="targetTonnage" min="10000" max="100000" step="1000" value="35000">
+                    <div class="value-display" id="targetTonnageValue">35,000 tons/year</div>
                 </div>
             </div>
 
@@ -617,7 +617,7 @@
                     document.getElementById('errorMsg').style.display = 'block';
                 }
             } catch (error) {
-                document.getElementById('errorMsg').textContent = 'Error: ' + error.message;
+                document.getElementById('errorMsg').textContent = "This is not an economically feasible feed. Please try another."
                 document.getElementById('errorMsg').style.display = 'block';
             } finally {
                 document.getElementById('loading').style.display = 'none';

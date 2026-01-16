@@ -228,10 +228,10 @@ def flot_rec(fitting_parameters, flotation_constants, opt_var, inputs):
 
 fitting_parameters = {
     'b': 2,
-    'alpha': 0.15,
+    'alpha': 0.01,
     'coverage': 0.525,  
     'bubble_f': 0.825,
-    'detach_f': 0.5,
+    'detach_f': 0.7,
     'bulk_zone': 0.5
 }
 
