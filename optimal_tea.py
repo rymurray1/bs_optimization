@@ -247,7 +247,7 @@ class OptimalTEA:
             # Leaching parameters
             (190, 190),      # T (°C)
             (12, 15),        # P_O2 (bar)
-            (71.05, 90),        # Ea (kJ/mol)
+            (70, 90),        # Ea (kJ/mol)
             (0.5, .6),       # n (reaction order)
             (0.1, 0.3),      # H_plus (mol/L)
             (2, 12),         # leach_time (hours)
@@ -909,9 +909,9 @@ def main():
     """Main function to run optimization."""
     # Create optimizer with default target (10,000 tons Cu/year)
     optimizer = OptimalTEA(
-        target_cu_tons=100000,
-        feed_grade=0.003,  
-        concentrate_grade=0.28,  
+        target_cu_tons=10000,
+        feed_grade=0.0055,  
+        concentrate_grade=0.25,  
         use_electrolyzer=False
     )
 
@@ -932,8 +932,8 @@ if __name__ == "__main__":
 
 
     comparison = compare_with_and_without_electrolyzer(
-        target_cu_tons=100000,
-        feed_grade=.004,
-        concentrate_grade=0.3,
+        target_cu_tons=1000000,
+        feed_grade=.0055,
+        concentrate_grade=0.25,
         maxiter=30
     )
