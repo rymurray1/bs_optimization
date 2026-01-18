@@ -550,8 +550,28 @@ class OptimalTEA:
 
         # Total costs
         total_capex = grinding_capex + flotation_capex + leaching_capex + sx_capex + ew_capex + electrolyzer_capex
-        total_opex = ore_feed_opex + grinding_opex + flotation_opex + leaching_opex + sx_opex + ew_opex + electrolyzer_opex
+
+        # O&M cost: 3.5% of total CAPEX per year
+        om_cost = total_capex * 0.035
+
+        total_opex = ore_feed_opex + grinding_opex + flotation_opex + leaching_opex + sx_opex + ew_opex + electrolyzer_opex + om_cost
         total_cost = total_capex + total_opex
+
+        # Calculate energy costs breakdown
+        energy_costs = {
+            'grinding': grinding_opex,  # Grinding OPEX is primarily energy
+            'flotation': flotation_opex_dict.get('power', 0),
+            'ew': ew_opex_dict.get('power_cost', 0),
+            'electrolyzer': electrolyzer_opex_dict.get('power_cost', 0) if self.use_electrolyzer else 0
+        }
+        total_energy_cost = sum(energy_costs.values())
+
+        # Calculate water costs breakdown
+        water_costs = {
+            'flotation': flotation_opex_dict.get('water', 0),
+            'electrolyzer': electrolyzer_opex_dict.get('water_cost', 0) if self.use_electrolyzer else 0
+        }
+        total_water_cost = sum(water_costs.values())
 
         # Calculate constraint violation (both over and under production)
         production_shortfall = max(0, self.target_cu_tons - cu_plated_tons)
@@ -581,7 +601,20 @@ class OptimalTEA:
                 'leaching': {'capex': leaching_capex, 'opex': leaching_opex},
                 'sx': {'capex': sx_capex, 'opex': sx_opex},
                 'ew': {'capex': ew_capex, 'opex': ew_opex},
-                'electrolyzer': {'capex': electrolyzer_capex, 'opex': electrolyzer_opex, 'enabled': self.use_electrolyzer}
+                'electrolyzer': {'capex': electrolyzer_capex, 'opex': electrolyzer_opex, 'enabled': self.use_electrolyzer},
+                'om': {'capex': 0, 'opex': om_cost}
+            },
+            'energy_costs': {
+                'grinding': energy_costs['grinding'],
+                'flotation': energy_costs['flotation'],
+                'ew': energy_costs['ew'],
+                'electrolyzer': energy_costs['electrolyzer'],
+                'total': total_energy_cost
+            },
+            'water_costs': {
+                'flotation': water_costs['flotation'],
+                'electrolyzer': water_costs['electrolyzer'],
+                'total': total_water_cost
             },
             'calculated_parameters': {
                 'grinding': grinding_params,
@@ -771,7 +804,21 @@ class OptimalTEA:
 
         print("\n--- STAGE-WISE COSTS ---")
         for stage, costs in result['stage_costs'].items():
-            print(f"{stage.capitalize():15s} CAPEX: ${costs['capex']:>12,.2f}  OPEX: ${costs['opex']:>12,.2f}/year")
+            if stage != 'om':  # O&M shown separately in OPEX breakdown
+                print(f"{stage.capitalize():15s} CAPEX: ${costs['capex']:>12,.2f}  OPEX: ${costs['opex']:>12,.2f}/year")
+
+        print("\n--- OPEX BREAKDOWN BY CATEGORY ---")
+        energy_total = result['energy_costs']['total']
+        water_total = result['water_costs']['total']
+        om_total = result['stage_costs']['om']['opex']
+        other_opex = opex_per_year - energy_total - water_total - om_total
+
+        print(f"  Energy:        ${energy_total:>12,.2f}/year  ({energy_total/opex_per_year*100:5.1f}%)")
+        print(f"  Water:         ${water_total:>12,.2f}/year  ({water_total/opex_per_year*100:5.1f}%)")
+        print(f"  O&M (3.5% CAPEX): ${om_total:>9,.2f}/year  ({om_total/opex_per_year*100:5.1f}%)")
+        print(f"  Other:         ${other_opex:>12,.2f}/year  ({other_opex/opex_per_year*100:5.1f}%)")
+        print(f"  ----------------------------------------")
+        print(f"  TOTAL OPEX:    ${opex_per_year:>12,.2f}/year")
 
         # Optimal parameters
         print("\n--- OPTIMAL PARAMETERS ---")
@@ -932,8 +979,8 @@ if __name__ == "__main__":
 
 
     comparison = compare_with_and_without_electrolyzer(
-        target_cu_tons=100000,
-        feed_grade=.0055,
-        concentrate_grade=0.25,
+        target_cu_tons=10000,
+        feed_grade=.006,
+        concentrate_grade=0.3,
         maxiter=30
     )
