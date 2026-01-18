@@ -462,7 +462,7 @@ class OptimalTEA:
             sp_power=flotation_params['sp_power'],
             ret_time=flotation_params['ret_time'],
             num_cells=flotation_params['num_cells'],
-            frother_conc=flotation_params['frother_conc'],
+            frother_conc=None,  # Frother cost excluded
             cell_volume=flotation_params['cell_volume']
         )
         flotation_opex = flotation_opex_dict['total']
