@@ -97,13 +97,3 @@ def solvent_extraction(C_Cu_in_aq, K_ex=10, RH=0.5, O_A=1.0, pH=1.1):
     C_Cu_out_aq = C_Cu_in_aq / denominator
 
     return C_Cu_out_aq
-
-# Test example
-if __name__ == "__main__":
-    test_input = 1000
-    result = solvent_extraction(test_input)
-    extraction_rate = ((test_input - result) / test_input) * 100
-    print(f'Input: {test_input} moles Cu')
-    print(f'Output (raffinate): {result:.2f} moles Cu')
-    print(f'Extracted: {test_input - result:.2f} moles Cu')
-    print(f'Extraction efficiency: {extraction_rate:.2f}%')
