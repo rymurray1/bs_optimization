@@ -85,6 +85,3 @@ def overpotential(a, j, b):
     eta = a * math.log(j) + b
 
     return eta
-
-cu_out, cu_in, rate = electrowinning_concentration()
-print(cu_out, cu_in, rate)
